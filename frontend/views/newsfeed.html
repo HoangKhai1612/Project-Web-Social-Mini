@@ -1,0 +1,19 @@
+<template id="newsfeedTemplate">
+    <div class="max-w-2xl mx-auto">
+
+        <div class="surface rounded-lg shadow p-4 mb-4 border border-base">
+            <div class="flex items-center gap-3">
+                <div id="currentUserAvatar" class="avatar-small rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-white flex items-center justify-center font-bold text-lg">
+                    </div>
+                <button onclick="window.NewsfeedModule.showCreatePostModal()"
+                        class="flex-1 p-3 bg-gray-100 rounded-full text-left text-secondary">
+                    Bạn đang nghĩ gì?
+                </button>
+            </div>
+        </div>
+
+        <div id="postsFeed">
+            <div class="p-8 text-center text-secondary">Đang tải bài viết...</div>
+        </div>
+    </div>
+</template>

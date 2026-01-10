@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="vi" class="h-full bg-slate-50">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SocialVN | Quản trị hệ thống</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="http://localhost:3000/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { primary: '#1877F2', secondary: '#65676B' }
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="h-full flex text-slate-800 font-sans antialiased overflow-hidden">
+
+    <!-- SIDEBAR -->
+    <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20 transition-all duration-300">
+        <div class="h-16 flex items-center px-6 font-bold text-xl tracking-wider border-b border-slate-700">
+            <span class="text-blue-500 mr-2">🛡️</span> AdminPanel
+        </div>
+
+        <nav class="flex-1 py-4 space-y-1 px-3">
+            <a href="#" onclick="switchModule('overview')"
+                class="nav-item flex items-center px-4 py-3 rounded-xl hover:bg-slate-800 transition text-slate-300 hover:text-white"
+                id="nav-overview">
+                <span class="mr-3">📊</span> Tổng quan
+            </a>
+            <a href="#" onclick="switchModule('users')"
+                class="nav-item flex items-center px-4 py-3 rounded-xl hover:bg-slate-800 transition text-slate-300 hover:text-white"
+                id="nav-users">
+                <span class="mr-3">👥</span> Người dùng
+            </a>
+            <a href="#" onclick="switchModule('reports')"
+                class="nav-item flex items-center px-4 py-3 rounded-xl hover:bg-slate-800 transition text-slate-300 hover:text-white"
+                id="nav-reports">
+                <span class="mr-3">🚩</span> Báo cáo
+                <span id="badge-reports" class="ml-auto bg-red-500 text-xs px-2 py-0.5 rounded-full hidden">0</span>
+            </a>
+            <a href="#" onclick="switchModule('content')"
+                class="nav-item flex items-center px-4 py-3 rounded-xl hover:bg-slate-800 transition text-slate-300 hover:text-white"
+                id="nav-content">
+                <span class="mr-3">📝</span> Nội dung
+            </a>
+            <a href="#" onclick="switchModule('settings')"
+                class="nav-item flex items-center px-4 py-3 rounded-xl hover:bg-slate-800 transition text-slate-300 hover:text-white"
+                id="nav-settings">
+                <span class="mr-3">⚙️</span> Cấu hình
+            </a>
+        </nav>
+
+        <div class="p-4 border-t border-slate-700">
+            <button onclick="handleLogout()"
+                class="w-full py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm text-white font-bold transition flex items-center justify-center gap-2">
+                <span>🚪</span> Đăng xuất
+            </button>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 flex flex-col bg-slate-50 relative overflow-hidden">
+        <!-- HEADER -->
+        <header class="h-16 bg-white shadow-sm flex items-center justify-between px-6 z-10">
+            <h2 id="pageTitle" class="font-bold text-xl text-slate-800">Tổng quan</h2>
+            <div class="flex items-center gap-4">
+                <div class="text-right">
+                    <div class="font-bold text-sm" id="adminName">Admin</div>
+                    <div class="text-xs text-slate-500">Super Administrator</div>
+                </div>
+                <img id="adminAvatar" src="images/default_avatar_male.png"
+                    onerror="this.src='images/default_avatar_male.png'"
+                    class="w-10 h-10 rounded-full border border-slate-200">
+            </div>
+        </header>
+
+        <!-- MODULE CONTENT AREA -->
+        <div id="contentArea" class="flex-1 overflow-y-auto p-6 space-y-6">
+            <!-- Dynamic Content will be loaded here -->
+            <div class="animate-pulse flex justify-center mt-10">Đang tải dữ liệu...</div>
+        </div>
+    </main>
+
+    <!-- TEMPLATES -->
+    <!-- 1. OVERVIEW TEMPLATE -->
+    <template id="tpl-overview">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div class="text-slate-400 text-sm font-medium uppercase mb-1">Tổng người dùng</div>
+                <div class="text-3xl font-bold text-slate-800" id="stat-users">0</div>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div class="text-slate-400 text-sm font-medium uppercase mb-1">Bài viết mới (Hôm nay)</div>
+                <div class="text-3xl font-bold text-green-600" id="stat-posts">0</div>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div class="text-slate-400 text-sm font-medium uppercase mb-1">Báo cáo chờ xử lý</div>
+                <div class="text-3xl font-bold text-red-500" id="stat-reports">0</div>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div class="text-slate-400 text-sm font-medium uppercase mb-1">Đang Online</div>
+                <div class="text-3xl font-bold text-blue-500 flex items-center gap-2">
+                    <span id="stat-online">0</span>
+                    <span class="relative flex h-3 w-3">
+                        <span
+                            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <h3 class="font-bold text-lg mb-4">Biểu đồ tăng trưởng</h3>
+                <div id="chart-container"
+                    class="h-64 bg-white rounded-xl flex items-center justify-center text-slate-400 p-2">
+                    <canvas id="growthChart"></canvas>
+                </div>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <h3 class="font-bold text-lg mb-4">Hoạt động gần đây</h3>
+                <ul id="activity-list" class="space-y-3"></ul>
+            </div>
+        </div>
+    </template>
+
+    <!-- 2. USERS TEMPLATE -->
+    <template id="tpl-users">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full">
+            <div class="p-4 border-b flex justify-between items-center bg-slate-50/50 rounded-t-2xl">
+                <input type="text" id="user-search" placeholder="Tìm tên, email..."
+                    class="bg-white border text-sm rounded-lg block p-2.5 outline-none w-80 focus:ring-1 focus:ring-blue-500"
+                    onkeyup="if(event.key==='Enter') window.AdminModule.loadUsers(this.value)">
+                <button onclick="window.AdminModule.loadUsers()"
+                    class="text-blue-600 text-sm font-bold hover:underline">Làm mới</button>
+            </div>
+            <div class="overflow-auto flex-1">
+                <table class="w-full text-sm text-left text-slate-600">
+                    <thead class="text-xs text-slate-700 uppercase bg-slate-50 sticky top-0">
+                        <tr>
+                            <th class="px-6 py-3">User</th>
+                            <th class="px-6 py-3">Email/Role</th>
+                            <th class="px-6 py-3">Trạng thái</th>
+                            <th class="px-6 py-3">Ngày tham gia</th>
+                            <th class="px-6 py-3 text-right">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </template>
+
+    <!-- 3. REPORTS TEMPLATE -->
+    <template id="tpl-reports">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full">
+            <div class="overflow-auto flex-1">
+                <table class="w-full text-sm text-left text-slate-600">
+                    <thead class="text-xs text-slate-700 uppercase bg-slate-50 sticky top-0">
+                        <tr>
+                            <th class="px-6 py-3">Người báo cáo</th>
+                            <th class="px-6 py-3">Đối tượng</th>
+                            <th class="px-6 py-3">Lý do</th>
+                            <th class="px-6 py-3">Trạng thái</th>
+                            <th class="px-6 py-3 text-right">Xử lý</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reports-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </template>
+
+    <!-- 4. CONTENT TEMPLATE -->
+    <template id="tpl-content">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full">
+            <div class="p-4 border-b flex justify-between items-center bg-slate-50/50 rounded-t-2xl">
+                <h3 class="font-bold text-slate-700">Quản lý bài viết & Nội dung</h3>
+                <button onclick="window.AdminModule.loadPosts()"
+                    class="text-blue-600 text-sm font-bold hover:underline">Làm mới</button>
+            </div>
+            <div class="overflow-auto flex-1">
+                <table class="w-full text-sm text-left text-slate-600">
+                    <thead class="text-xs text-slate-700 uppercase bg-slate-50 sticky top-0">
+                        <tr>
+                            <th class="px-6 py-3">Tác giả</th>
+                            <th class="px-6 py-3">Nội dung / Ảnh</th>
+                            <th class="px-6 py-3">Ngày đăng</th>
+                            <th class="px-6 py-3">Tương tác</th>
+                            <th class="px-6 py-3 text-right">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody id="posts-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </template>
+
+    <!-- 5. SETTINGS TEMPLATE -->
+    <template id="tpl-settings">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+            <!-- Left: Settings Form -->
+            <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6 overflow-y-auto">
+                <h3 class="font-bold text-lg mb-4 border-b pb-2">⚙️ Cấu hình hệ thống</h3>
+
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Giới hạn upload ảnh (MB)</label>
+                        <input type="number" value="10" class="w-full p-2 border rounded-lg bg-slate-50" disabled>
+                        <p class="text-xs text-slate-400 mt-1">Cần khởi động lại server để thay đổi.</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Chế độ bảo trì</label>
+                        <div class="flex items-center">
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="maintenanceToggle" class="sr-only peer"
+                                    onchange="window.AdminModule.toggleMaintenance(this.checked)">
+                                <div
+                                    class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600">
+                                </div>
+                                <span class="ml-3 text-sm font-medium text-slate-700">Bật bảo trì (Chặn user
+                                    login)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl border border-slate-200 mt-6 flex flex-col max-h-96">
+                        <div class="flex justify-between items-center p-4 border-b shrink-0">
+                            <h4 class="font-bold text-slate-700">Danh sách Quản trị viên</h4>
+                            <button onclick="window.AdminModule.showAddAdminModal()"
+                                class="bg-blue-600 text-white text-xs font-bold px-3 py-2 rounded hover:bg-blue-700">+
+                                Thêm Admin</button>
+                        </div>
+                        <div class="overflow-y-auto flex-1">
+                            <table class="w-full text-sm text-left">
+                                <thead class="bg-slate-50 text-xs text-slate-500 uppercase sticky top-0 z-10 shadow-sm">
+                                    <tr>
+                                        <th class="px-4 py-3 bg-slate-50">Username</th>
+                                        <th class="px-4 py-3 bg-slate-50">Họ tên</th>
+                                        <th class="px-4 py-3 bg-slate-50">Role</th>
+                                        <th class="px-4 py-3 text-right bg-slate-50">Hành động</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-list-table"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Audit Logs -->
+            <div class="bg-slate-900 text-slate-300 rounded-2xl shadow-lg p-4 flex flex-col h-full overflow-hidden">
+                <h3 class="font-bold text-white mb-4 border-b border-slate-700 pb-2">📜 Nhật ký hoạt động (Audit Logs)
+                </h3>
+                <div class="flex-1 overflow-y-auto font-mono text-xs space-y-2" id="audit-logs-container">
+                    <div class="text-slate-500 italic">Đang tải nhật ký...</div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script type="module" src="js/admin.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="vi" class="h-full bg-slate-50">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SocialVN | Kết nối cộng đồng</title>
+
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: 'var(--primary-blue)',
+                        secondary: 'var(--text-muted)',
+                        surface: 'var(--surface-color)',
+                        base: 'var(--border-color)',
+                        content: 'var(--text-main)',
+                    },
+                    zIndex: {
+                        '100': '100',
+                        '1000': '1000',
+                        '2000': '2000',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Toast & Modal UI */
+        #toastContainer {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
+
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+
+        /* Animation cho bài viết và modal */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body
+    class="h-full overflow-hidden text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
+
+    <div id="app" class="h-full w-full flex flex-col">
+        <div class="flex items-center justify-center h-full">
+            <div class="animate-pulse flex flex-col items-center">
+                <div
+                    class="w-16 h-16 bg-blue-600 rounded-2xl mb-4 shadow-lg shadow-blue-200 flex items-center justify-center text-white text-3xl">
+                    🌐</div>
+                <p class="text-slate-400 font-medium">Đang khởi tạo SocialVN...</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="modalSystem" class="hidden fixed inset-0 z-[2000] flex items-center justify-center p-4">
+        <div class="modal-overlay absolute inset-0" onclick="window.closeModal()"></div>
+
+        <div
+            class="relative bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden transform transition-all scale-100 flex flex-col max-h-[90vh] border border-slate-100 dark:border-slate-700">
+            <div
+                class="px-6 py-4 border-b dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800 sticky top-0 z-10">
+                <h3 id="modalTitle" class="text-lg font-bold text-slate-800 dark:text-white">Tiêu đề</h3>
+                <button onclick="window.closeModal()"
+                    class="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400 hover:text-red-500 transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <div id="modalBody" class="p-6 overflow-y-auto custom-scrollbar">
+            </div>
+        </div>
+    </div>
+
+    <div id="toastContainer" class="flex flex-col gap-2"></div>
+
+    <template id="tpl-toast">
+        <div
+            class="toast-item flex items-center p-4 rounded-2xl shadow-2xl border dark:border-slate-700 bg-white dark:bg-slate-800 min-w-[300px] animate-fade-in-right">
+            <div class="toast-icon w-10 h-10 rounded-full flex items-center justify-center mr-3 shrink-0"></div>
+            <div class="flex-1">
+                <p class="toast-msg text-sm font-semibold text-slate-700 dark:text-slate-200"></p>
+            </div>
+        </div>
+    </template>
+
+    <!-- REPORT MODAL TEMPLATE -->
+    <template id="tpl-report-modal">
+        <div class="p-6">
+            <h3 class="text-xl font-bold bg-gradient-to-r from-red-600 to-pink-600 bg-clip-text text-transparent mb-4">
+                📢 Báo cáo vi phạm</h3>
+            <form id="reportForm" onsubmit="window.handleReportSubmit(event)">
+                <input type="hidden" id="reportTargetType">
+                <input type="hidden" id="reportTargetId">
+
+                <div class="space-y-3 mb-4 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                    <p class="font-medium text-slate-700 dark:text-slate-300">Vui lòng chọn lý do vi phạm:</p>
+
+                    <label
+                        class="flex items-start p-3 border dark:border-slate-600 rounded-lg cursor-pointer hover:bg-red-50 dark:hover:bg-slate-700 transition group">
+                        <input type="radio" name="reason" value="spam"
+                            class="mt-1 w-4 h-4 text-red-600 focus:ring-red-500" checked>
+                        <div class="ml-3">
+                            <div
+                                class="font-bold text-sm text-slate-800 dark:text-slate-200 group-hover:text-red-700 dark:group-hover:text-red-400">
+                                🚫 Nội dung rác (Spam)</div>
+                            <div class="text-xs text-slate-500 dark:text-slate-400">Đăng tải quá nhiều nội dung lặp lại,
+                                quảng cáo trái phép</div>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-red-50 transition">
+                        <input type="radio" name="reason" value="hate_speech" class="mt-1 w-4 h-4 text-red-600">
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800">😡 Ngôn từ gây thù ghét</div>
+                            <div class="text-xs text-slate-500">Phân biệt đối xử về chủng tộc, tôn giáo, giới tính</div>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-red-50 transition">
+                        <input type="radio" name="reason" value="harassment" class="mt-1 w-4 h-4 text-red-600">
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800">⚠️ Quấy rối và bắt nạt</div>
+                            <div class="text-xs text-slate-500">Đe dọa, làm phiền người dùng khác</div>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-red-50 transition">
+                        <input type="radio" name="reason" value="sensitive_content" class="mt-1 w-4 h-4 text-red-600">
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800">🔞 Nội dung nhạy cảm/Bạo lực</div>
+                            <div class="text-xs text-slate-500">Hình ảnh khiêu dâm, bạo lực máu me</div>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-red-50 transition">
+                        <input type="radio" name="reason" value="impersonation" class="mt-1 w-4 h-4 text-red-600">
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800">👤 Mạo danh</div>
+                            <div class="text-xs text-slate-500">Giả mạo tài khoản người khác</div>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-red-50 transition">
+                        <input type="radio" name="reason" value="privacy_violation" class="mt-1 w-4 h-4 text-red-600">
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800">🔒 Vi phạm quyền riêng tư</div>
+                            <div class="text-xs text-slate-500">Chia sẻ thông tin cá nhân khi chưa được phép (Doxxing)
+                            </div>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="mb-4">
+                    <label for="reportDescription" class="block mb-2 text-sm font-medium text-slate-700">Mô tả chi tiết
+                        (Tùy chọn):</label>
+                    <textarea id="reportDescription" rows="3"
+                        class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:ring-red-500 focus:border-red-500"
+                        placeholder="Hãy mô tả thêm về vấn đề bạn gặp phải..."></textarea>
+                </div>
+
+                <div class="flex justify-end gap-2">
+                    <button type="button" onclick="window.closeModal()"
+                        class="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200">Hủy</button>
+                    <button type="submit"
+                        class="px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 shadow-md transition transform active:scale-95">Gửi
+                        báo cáo</button>
+                </div>
+            </form>
+        </div>
+    </template>
+
+    <script type="module" src="js/main.js?v=2"></script>
+
+    <script>
+        /**
+         * Mở Modal hệ thống
+         */
+        window.openModal = function (title, htmlContent) {
+            const modal = document.getElementById('modalSystem');
+            document.getElementById('modalTitle').innerText = title;
+            document.getElementById('modalBody').innerHTML = htmlContent;
+            modal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        };
+
+        /**
+         * Đóng Modal hệ thống
+         */
+        window.closeModal = function () {
+            const modal = document.getElementById('modalSystem');
+            modal.classList.add('hidden');
+            document.getElementById('modalBody').innerHTML = '';
+            document.body.style.overflow = '';
+        };
+
+        /**
+         * Hiển thị thông báo Toast chuyên nghiệp
+         * @param {string} msg - Nội dung
+         * @param {string} type - 'success', 'error', 'info'
+         */
+        window.showToast = function (msg, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const template = document.getElementById('tpl-toast');
+            const clone = template.content.cloneNode(true);
+
+            const item = clone.querySelector('.toast-item');
+            const iconBox = clone.querySelector('.toast-icon');
+            const msgBox = clone.querySelector('.toast-msg');
+
+            msgBox.innerText = msg;
+
+            // Cấu hình màu sắc theo loại
+            if (type === 'success') {
+                iconBox.innerHTML = '✅';
+                iconBox.classList.add('bg-green-100');
+                item.classList.add('border-green-200');
+            } else if (type === 'error') {
+                iconBox.innerHTML = '❌';
+                iconBox.classList.add('bg-red-100');
+                item.classList.add('border-red-200');
+            } else {
+                iconBox.innerHTML = 'ℹ️';
+                iconBox.classList.add('bg-blue-100');
+                item.classList.add('border-blue-200');
+            }
+
+            container.appendChild(item);
+
+            // Tự động xóa sau 3.5 giây
+            setTimeout(() => {
+                item.style.opacity = '0';
+                item.style.transform = 'translateX(100px)';
+                item.style.transition = 'all 0.5s ease';
+                setTimeout(() => item.remove(), 500);
+            }, 3500);
+        };
+
+        // Lắng nghe phím ESC để đóng modal
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') window.closeModal();
+        });
+
+        // Xử lý lỗi ảnh mặc định toàn cục
+        document.addEventListener('error', function (e) {
+            if (e.target.tagName.toLowerCase() === 'img') {
+                // Nếu là avatar lỗi -> dùng ảnh default
+                if (e.target.id === 'userAvatar' || e.target.classList.contains('avatar')) {
+                    e.target.src = 'images/default.png';
+                }
+                // Nếu là ảnh bìa lỗi
+                if (e.target.id === 'coverImg') {
+                    e.target.src = 'images/default_cover.png';
+                }
+            }
+        }, true);
+    </script>
+</body>
+
+</html>

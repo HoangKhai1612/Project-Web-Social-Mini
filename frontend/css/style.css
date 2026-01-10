@@ -1,0 +1,233 @@
+/* frontend/css/style.css */
+
+/* --- 1. HỆ THỐNG BIẾN MÀU SẮC (TƯƠNG PHẢN CAO & ĐỒNG NHẤT) --- */
+:root {
+    /* --- Light Mode (Giao diện sáng) --- */
+    --bg-color: #f8fafc;            /* Nền chính xám cực nhẹ */
+    --surface-color: #ffffff;       /* Nền các khối nội dung trắng */
+    --text-main: #1e293b;           /* Chữ chính xanh đen */
+    --text-muted: #64748b;          /* Chữ phụ xám */
+    --border-color: #e2e8f0;        /* Viền sáng */
+    --primary-blue: #2563eb;        /* Xanh thương hiệu */
+    --primary-light: #dbeafe;
+    
+    /* Chat Bubbles - Light */
+    --msg-bg-self: #2563eb;
+    --msg-text-self: #ffffff;
+    --msg-bg-other: #f1f5f9;
+    --msg-text-other: #1e293b;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+}
+
+/* --- DARK MODE (GIAO DIỆN TỐI - FIX LỖI NỀN TRẮNG) --- */
+body.dark-mode {
+    --bg-color: #020617;            /* Đen xanh sâu cho toàn bộ nền */
+    --surface-color: #0f172a;       /* Xanh đen nhạt hơn cho Card/Sidebar */
+    --text-main: #f1f5f9;           /* Chữ trắng xám */
+    --text-muted: #94a3b8;          /* Chữ phụ xám nhạt */
+    --border-color: #1e293b;        /* Viền tối */
+    --primary-blue: #3b82f6;        /* Xanh dương sáng hơn trong nền tối */
+    
+    /* Chat Bubbles - Dark */
+    --msg-bg-self: #3b82f6;
+    --msg-bg-other: #1e293b;
+    --msg-text-other: #f1f5f9;
+}
+
+
+/* --- 2. CÀI ĐẶT CƠ BẢN & RESET --- */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    width: 100%;
+    background-color: var(--bg-color) !important; /* Ép màu nền chính */
+}
+
+body {
+    color: var(--text-main);
+    transition: background-color 0.3s ease, color 0.3s ease;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden; /* Fix scroll cho main layout */
+}
+
+/* --- 3. ĐỊNH DẠNG LAYOUT (XỬ LÝ VÙNG TRẮNG) --- */
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background-color: var(--bg-color) !important;
+}
+
+/* Ép màu nền cho tất cả các container lớn */
+#mainLayout, 
+#mainContent, 
+.main-content-container, 
+#chatSidebar, 
+header#mainHeader {
+    background-color: var(--bg-color) !important;
+    color: var(--text-main);
+    transition: background-color 0.3s ease;
+}
+
+.main-wrapper {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* Sidebar danh sách chat */
+.chat-sidebar {
+    width: 360px;
+    min-width: 300px;
+    max-width: 450px;
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    z-index: 20;
+}
+
+/* --- 4. TIỆN ÍCH DÙNG CHUNG (HELPER CLASSES) --- */
+/* Ép màu cho các khối nội dung trắng (Card) */
+.surface, .bg-white {
+    background-color: var(--surface-color) !important;
+    color: var(--text-main) !important;
+}
+
+.border-base, .border, .border-slate-100 {
+    border-color: var(--border-color) !important;
+}
+
+.btn-primary {
+    background-color: var(--primary-blue);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+
+/* --- 5. HỆ THỐNG TIN NHẮN (CHAT BUBBLES) --- */
+#messageList {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+}
+
+.message-item {
+    display: flex;
+    flex-direction: column;
+    max-width: 75%;
+    animation: slideUp 0.3s ease-out;
+}
+
+.message-bubble {
+    padding: 10px 16px;
+    font-size: 14.5px;
+    line-height: 1.5;
+    position: relative;
+    box-shadow: var(--shadow-sm);
+    word-break: break-word;
+}
+
+.items-end .message-bubble {
+    background-color: var(--msg-bg-self);
+    color: var(--msg-text-self);
+    border-radius: 18px 18px 4px 18px;
+}
+
+.items-start .message-bubble {
+    background-color: var(--msg-bg-other);
+    color: var(--msg-text-other);
+    border-radius: 18px 18px 18px 4px;
+    border: 1px solid var(--border-color);
+}
+
+/* --- 6. INPUTS & FORM (XỬ LÝ CHỮ ĐEN TRONG NỀN TỐI) --- */
+input, select, textarea {
+    background-color: var(--surface-color);
+    color: var(--text-main);
+    border: 1.5px solid var(--border-color);
+    padding: 12px;
+    border-radius: 12px;
+    outline: none;
+}
+
+/* Force màu cho Dark Mode Input */
+.dark-mode input, 
+.dark-mode select, 
+.dark-mode textarea {
+    background-color: #1e293b !important; /* Màu nền input tối */
+    color: #ffffff !important;           /* Chữ trắng */
+    border-color: #334155 !important;
+}
+
+/* --- 7. MODALS & OVERLAYS --- */
+.modal-backdrop {
+    background: rgba(2, 6, 23, 0.8) !important;
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    background-color: var(--surface-color) !important;
+    color: var(--text-main) !important;
+    border: 1px solid var(--border-color);
+    border-radius: 24px;
+    box-shadow: var(--shadow-md);
+}
+
+/* --- 8. THANH KÉO (RESIZER) --- */
+.resizer, #splitter {
+    width: 3px;
+    cursor: col-resize;
+    background-color: var(--border-color) !important;
+}
+.resizer:hover { background-color: var(--primary-blue) !important; }
+
+/* --- 9. CUSTOM SCROLLBAR --- */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+    background: var(--text-muted);
+    border-radius: 10px;
+    opacity: 0.5;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--primary-blue); }
+
+/* --- 10. ANIMATIONS --- */
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes zoomIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* --- 11. MOBILE RESPONSIVE --- */
+@media (max-width: 768px) {
+    .chat-sidebar {
+        width: 100% !important;
+        position: absolute;
+        height: 100%;
+        left: 0;
+        transition: transform 0.3s ease;
+    }
+    .chat-sidebar.hidden-mobile { transform: translateX(-100%); }
+    .main-content-container { min-width: 100%; }
+    .resizer { display: none; }
+}

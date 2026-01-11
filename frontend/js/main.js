@@ -3,6 +3,10 @@
 export const IO_URL = 'http://localhost:3000';
 export const API_URL = `${IO_URL}/api`;
 
+// Expose to window for global access
+window.IO_URL = IO_URL;
+window.API_URL = API_URL;
+
 // Khởi tạo Socket.io
 export const io = window.io(IO_URL);
 
@@ -242,6 +246,14 @@ export function getAvatarUrl(avatarPath, gender = 'male') {
         return avatarPath;
     }
 
+    // [FIX] Detect static frontend images (requested by user to store as frontend/images/...)
+    // If path implies it's a local static image, return relative path to ./images/
+    if (avatarPath.includes('frontend/images/') || avatarPath.startsWith('images/')) {
+        // Extract filename and point to local images folder
+        const filename = avatarPath.split('/').pop(); // e.g. default_super_admin.png
+        return `./images/${filename}`;
+    }
+
     // Chuẩn hóa đường dẫn (thay thế backslash cho Windows, bỏ dấu / ở đầu)
     let cleanPath = avatarPath.replace(/\\/g, '/').replace(/^\/+/, '');
 
@@ -461,8 +473,9 @@ export function loadAuthShell() {
                        class="w-full p-3 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none transition">
                 <button type="submit" class="w-full p-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-100 hover:bg-blue-700 transition">Đăng nhập</button>
             </form>
-            <div class="mt-6 text-center">
-                <button onclick="window.renderRegister()" class="text-blue-600 font-bold hover:underline">Tạo tài khoản mới</button>
+            <div class="mt-6 flex flex-col gap-3 text-center">
+                <button onclick="window.renderForgotPassword()" class="text-slate-500 text-sm hover:text-blue-600 transition">Quên mật khẩu?</button>
+                <button onclick="window.renderRegister()" class="text-blue-600 font-extrabold hover:underline">Tạo tài khoản mới</button>
             </div>
         </template>
         

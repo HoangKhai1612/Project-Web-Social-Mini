@@ -97,14 +97,19 @@ exports.createAdmin = async (req, res) => {
         return res.status(403).json({ success: false, message: "Chỉ Super Admin mới có thể tạo Super Admin khác." });
     }
 
+    // [REQ] Default Avatar based on Role (Using "frontend/images/..." as requested)
+    const defaultAvatar = newRole === 'super_admin'
+        ? 'frontend/images/default_super_admin.png'
+        : 'frontend/images/default_admin.png';
+
     try {
         // Hash password (need bcrypt)
         const bcrypt = require('bcryptjs');
         const hashedPassword = await bcrypt.hash(password, 10);
 
         await db.promise().query(
-            "INSERT INTO users (username, password, full_name, role, privacy_setting, avatar) VALUES (?, ?, ?, ?, 'public', '')",
-            [username, hashedPassword, full_name, newRole]
+            "INSERT INTO users (username, password, full_name, role, privacy_setting, avatar) VALUES (?, ?, ?, ?, 'public', ?)",
+            [username, hashedPassword, full_name, newRole, defaultAvatar]
         );
         res.json({ success: true, message: `Đã thêm ${newRole === 'super_admin' ? 'Super Admin' : 'Admin'} mới.` });
     } catch (err) {
@@ -115,15 +120,17 @@ exports.createAdmin = async (req, res) => {
 
 exports.deleteAdmin = async (req, res) => {
     const targetId = req.params.id;
-
-    // RBAC Check - Only Super Admin can delete
-    if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ success: false, message: "Chỉ Super Admin mới có quyền xóa Admin." });
-    }
+    const currentUserId = req.user.userId || req.user.id; // Normalize ID
+    const currentUserRole = req.user.role;
 
     // Prevent Self-Delete
-    if (String(targetId) === String(req.user.userId)) {
+    if (String(targetId) === String(currentUserId)) {
         return res.status(400).json({ success: false, message: "Không thể tự xóa chính mình." });
+    }
+
+    // [REQ] Only Super Admin can delete admins (and super admins)
+    if (currentUserRole !== 'super_admin') {
+        return res.status(403).json({ success: false, message: "Chỉ Super Admin mới có quyền xóa tài khoản quản trị." });
     }
 
     try {
@@ -131,15 +138,10 @@ exports.deleteAdmin = async (req, res) => {
         const [target] = await db.promise().query("SELECT role, username FROM users WHERE id = ?", [targetId]);
         if (!target.length) return res.status(404).json({ success: false, message: "Không tìm thấy tài khoản." });
 
-        // Verify target is admin or super_admin
-        if (target[0].role !== 'admin' && target[0].role !== 'super_admin') {
-            return res.status(400).json({ success: false, message: "Chỉ có thể xóa tài khoản Admin hoặc Super Admin." });
-        }
-
         // Delete the admin account
         await db.promise().query("DELETE FROM users WHERE id = ?", [targetId]);
 
-        res.json({ success: true, message: `Đã xóa tài khoản ${target[0].role === 'super_admin' ? 'Super Admin' : 'Admin'}.` });
+        res.json({ success: true, message: `Đã xóa tài khoản ${target[0].username}.` });
     } catch (err) {
         console.error(err);
         res.status(500).json({ success: false, message: "Server Error" });
@@ -149,20 +151,22 @@ exports.deleteAdmin = async (req, res) => {
 exports.updateAdminRole = async (req, res) => {
     const targetId = req.params.id;
     const { role } = req.body;
-
-    // Only Super Admin can update roles
-    if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ success: false, message: "Chỉ Super Admin mới có quyền thay đổi role." });
-    }
+    const currentUserId = req.user.userId || req.user.id;
+    const currentUserRole = req.user.role;
 
     // Validate role
     if (role !== 'admin' && role !== 'super_admin') {
         return res.status(400).json({ success: false, message: "Role không hợp lệ." });
     }
 
-    // Prevent changing own role
-    if (String(targetId) === String(req.user.userId)) {
-        return res.status(400).json({ success: false, message: "Không thể thay đổi role của chính mình." });
+    // Prevent changing own role via this API
+    if (String(targetId) === String(currentUserId)) {
+        return res.status(400).json({ success: false, message: "Không thể thay đổi role của chính mình tại đây." });
+    }
+
+    // [REQ] Only Super Admin can update roles
+    if (currentUserRole !== 'super_admin') {
+        return res.status(403).json({ success: false, message: "Chỉ Super Admin mới có quyền thay đổi role." });
     }
 
     try {
@@ -170,12 +174,101 @@ exports.updateAdminRole = async (req, res) => {
         const [target] = await db.promise().query("SELECT role FROM users WHERE id = ?", [targetId]);
         if (!target.length) return res.status(404).json({ success: false, message: "Không tìm thấy tài khoản." });
 
-        // Update role
-        await db.promise().query("UPDATE users SET role = ? WHERE id = ?", [role, targetId]);
+        // [REQ] Update Avatar based on New Role (Using "frontend/images/..." as requested)
+        const newAvatar = role === 'super_admin'
+            ? 'frontend/images/default_super_admin.png'
+            : 'frontend/images/default_admin.png';
 
-        res.json({ success: true, message: `Đã cập nhật role thành ${role === 'super_admin' ? 'Super Admin' : 'Admin'}.` });
+        // Update role and avatar
+        await db.promise().query("UPDATE users SET role = ?, avatar = ? WHERE id = ?", [role, newAvatar, targetId]);
+
+        res.json({ success: true, message: `Đã cập nhật role thành ${role}.` });
     } catch (err) {
         console.error(err);
+        res.status(500).json({ success: false, message: "Server Error" });
+    }
+};
+
+exports.updateAdminProfile = async (req, res) => {
+    const userId = req.user.userId || req.user.id;
+    const {
+        current_username,
+        current_password,
+        new_username,
+        full_name,
+        new_password
+    } = req.body;
+
+    if (!current_username || !current_password || !new_username || !full_name) {
+        return res.status(400).json({ success: false, message: "Vui lòng nhập đầy đủ thông tin xác thực và thông tin mới." });
+    }
+
+    try {
+        // 1. Fetch current user data
+        const [users] = await db.promise().query("SELECT * FROM users WHERE id = ?", [userId]);
+        if (!users.length) return res.status(404).json({ success: false, message: "User not found" });
+        const user = users[0];
+
+        // 2. Verify Current Username
+        if (user.username !== current_username) {
+            return res.status(400).json({ success: false, message: "Tên đăng nhập hiện tại không đúng." });
+        }
+
+        // 3. Verify Current Password
+        const bcrypt = require('bcryptjs');
+        const isMatch = await bcrypt.compare(current_password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ success: false, message: "Mật khẩu hiện tại không đúng." });
+        }
+
+        // 4. Prepare Update
+        let sql = "UPDATE users SET username = ?, full_name = ? WHERE id = ?";
+        let params = [new_username, full_name, userId];
+
+        if (new_password && new_password.trim() !== "") {
+            const hashedPassword = await bcrypt.hash(new_password, 10);
+            sql = "UPDATE users SET username = ?, full_name = ?, password = ? WHERE id = ?";
+            params = [new_username, full_name, hashedPassword, userId];
+        }
+
+        await db.promise().query(sql, params);
+        res.json({ success: true, message: "Cập nhật thông tin cá nhân thành công." });
+
+    } catch (err) {
+        console.error("Update Profile Error:", err);
+        // Check for duplicate entry error logic if needed, usually err.code === 'ER_DUP_ENTRY'
+        res.status(500).json({ success: false, message: "Lỗi cập nhật (Tên đăng nhập mới có thể đã tồn tại)." });
+    }
+};
+
+exports.verifyCredentials = async (req, res) => {
+    const userId = req.user.userId || req.user.id;
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({ success: false, message: "Thiếu thông tin xác thực." });
+    }
+
+    try {
+        const [users] = await db.promise().query("SELECT * FROM users WHERE id = ?", [userId]);
+        if (!users.length) return res.status(404).json({ success: false, message: "User not found" });
+        const user = users[0];
+
+        // Verify Username
+        if (user.username !== username) {
+            return res.status(400).json({ success: false, message: "Tên đăng nhập không đúng." });
+        }
+
+        // Verify Password
+        const bcrypt = require('bcryptjs');
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ success: false, message: "Mật khẩu không đúng." });
+        }
+
+        res.json({ success: true, message: "Xác thực thành công." });
+    } catch (err) {
+        console.error("Verify Error:", err);
         res.status(500).json({ success: false, message: "Server Error" });
     }
 };

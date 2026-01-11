@@ -29,7 +29,7 @@ exports.getMessages = async (req, res) => {
             }
 
             const [groupSettings] = await db.promise().query(
-                'SELECT name as group_name, theme_url FROM group_chats WHERE id = ?',
+                'SELECT name as group_name, theme_url, avatar FROM group_chats WHERE id = ?',
                 [targetId]
             );
 
@@ -183,25 +183,28 @@ exports.toggleReaction = async (req, res) => {
         const [rows] = await db.promise().query('SELECT reactions FROM messages WHERE id = ?', [messageId]);
         if (rows.length === 0) return res.status(404).json({ success: false, message: "Không tìm thấy tin nhắn." });
 
-        // Parse JSON từ database, nếu null thì tạo object trống
+        // Parse JSON từ database
         let reactions = rows[0].reactions ? JSON.parse(rows[0].reactions) : {};
 
-        // Logic: Nếu user đã thả emoji này rồi thì xóa đi (un-react), nếu chưa thì thêm vào
-        if (!reactions[emoji]) {
-            reactions[emoji] = [userId];
-        } else {
-            const index = reactions[emoji].indexOf(userId);
+        // 1. Xóa user khỏi TẤT CẢ các emoji hiện tại (để đảm bảo chỉ có 1 reaction)
+        let removed = false;
+        for (const reactionType in reactions) {
+            const index = reactions[reactionType].indexOf(userId);
             if (index > -1) {
-                // Đã có thì xóa
-                reactions[emoji].splice(index, 1);
-                if (reactions[emoji].length === 0) delete reactions[emoji];
-            } else {
-                // Chưa có thì thêm vào danh sách của emoji đó
-                reactions[emoji].push(userId);
+                reactions[reactionType].splice(index, 1);
+                if (reactions[reactionType].length === 0) delete reactions[reactionType];
+                if (reactionType === emoji) removed = true; // Đánh dấu là đã xóa chính emoji này (toggle off)
             }
         }
 
-        // Cập nhật lại vào Database dưới dạng chuỗi JSON
+        // 2. Nếu chưa xóa (tức là user chưa thả emoji này), thì thêm vào
+        // (Nếu removed = true nghĩa là user đã thả emoji này rồi -> click lại -> xóa -> toggle off không thêm lại)
+        if (!removed) {
+            if (!reactions[emoji]) reactions[emoji] = [];
+            reactions[emoji].push(userId);
+        }
+
+        // Cập nhật lại vào Database
         await db.promise().query('UPDATE messages SET reactions = ? WHERE id = ?', [JSON.stringify(reactions), messageId]);
 
         res.json({ success: true, reactions });
@@ -382,6 +385,41 @@ exports.leaveOrRemoveMember = async (req, res) => {
 
         res.json({ success: true, groupDeleted: false });
     } catch (err) { res.status(500).json({ success: false }); }
+};
+
+exports.uploadGroupChatAvatar = async (req, res) => {
+    const groupId = req.params.groupId;
+    const userId = req.user.id; // [FIX] Use secure ID from token
+    const file = req.file;
+
+    if (!groupId || !file) {
+        return res.status(400).json({ success: false, message: 'Thiếu ID nhóm hoặc file ảnh.' });
+    }
+
+    try {
+        console.log('--- UPLOAD CHAT GROUP AVATAR DEBUG ---');
+        console.log('GroupId:', groupId, 'UserId:', userId);
+
+        // Kiểm tra xem User có phải là thành viên nhóm không
+        const [memberCheck] = await db.promise().query(
+            'SELECT 1 FROM group_chat_members WHERE group_chat_id = ? AND user_id = ?',
+            [groupId, userId]
+        );
+
+        if (memberCheck.length === 0) {
+            return res.status(403).json({ success: false, message: 'Bạn không phải là thành viên của nhóm chat này.' });
+        }
+
+        // Lưu đường dẫn ảnh vào DB
+        const avatarUrl = `uploads/group_chats/${file.filename}`; // [FIX] Correct folder name
+        await db.promise().query('UPDATE group_chats SET avatar = ? WHERE id = ?', [avatarUrl, groupId]);
+
+        res.json({ success: true, message: 'Cập nhật ảnh nhóm chat thành công.', avatarUrl: avatarUrl });
+
+    } catch (err) {
+        console.error('Lỗi upload avatar nhóm chat:', err);
+        res.status(500).json({ success: false, message: 'Lỗi upload ảnh.' });
+    }
 };
 
 // ============================================

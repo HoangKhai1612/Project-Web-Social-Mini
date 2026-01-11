@@ -152,6 +152,7 @@ export function renderPost(post) {
 
     const userReaction = REACTIONS.find(r => String(r.type) === String(post.user_reaction_type)) || { icon: '👍', name: 'Thích' };
     const visibilityIcon = post.visibility === 1 ? '🔒' : '🌍';
+    const safeName = (post.full_name || '').replace(/"/g, '&quot;');
 
     return `
         <div id="post-${post.id}" class="surface rounded-lg shadow mb-4 p-4 border border-base relative bg-white dark:bg-slate-800 dark:border-slate-700 transition-colors duration-300">
@@ -186,19 +187,26 @@ export function renderPost(post) {
             </div>
 
             <div class="flex items-center gap-2">
-                <div class="flex-1 relative reaction-container">
-                    <button id="reactionBtn-${post.id}" 
-                            onclick="window.NewsfeedModule.setReaction('${post.id}', 1)"
-                            oncontextmenu="window.NewsfeedModule.showReactionPopup('${post.id}', event)"
+                <div class="flex-1 relative reaction-container" onmouseenter="window.NewsfeedModule.showReactionPopup('${post.id}', event)" onmouseleave="window.NewsfeedModule.hideReactionPopup('${post.id}')">
+                    <button onclick="window.NewsfeedModule.setReaction('${post.id}', 1)"
                             class="w-full p-2 rounded hover:bg-gray-100 flex items-center justify-center gap-1 text-secondary">
                         ${userReaction.icon} ${userReaction.name}
                     </button>
-                    <div id="reactionPopup-${post.id}" class="reaction-popup surface hidden">
-                        ${REACTIONS.map(r => `<span class="reaction-icon" onclick="window.NewsfeedModule.setReaction('${post.id}', ${r.type})">${r.icon}</span>`).join('')}
+                    <div id="reactionPopup-${post.id}" 
+                         onmouseenter="window.NewsfeedModule.showReactionPopup('${post.id}', event)"
+                         onmouseleave="window.NewsfeedModule.hideReactionPopup('${post.id}')"
+                         class="reaction-popup surface hidden absolute bottom-full left-0 mb-2 p-2 shadow-xl rounded-full flex gap-2 z-50 animate-scale-in bg-white dark:bg-slate-800 border dark:border-slate-700">
+                        ${REACTIONS.map(r => `
+                            <span class="reaction-icon cursor-pointer hover:scale-125 transition-transform text-2xl w-8 h-8 flex items-center justify-center" 
+                                  onclick="window.NewsfeedModule.setReaction('${post.id}', ${r.type})">${r.icon}</span>
+                        `).join('')}
                     </div>
                 </div>
                 <button onclick="window.NewsfeedModule.showComments('${post.id}')" class="flex-1 p-2 rounded hover:bg-gray-100 text-secondary">💬 Bình luận</button>
-                <button onclick="window.NewsfeedModule.showShareModal('${post.id}', 'post')" class="flex-1 p-2 rounded hover:bg-gray-100 text-secondary">🔄 Chia sẻ</button>
+                <button onclick="window.NewsfeedModule.showShareModal('${post.id}', 'post', this.getAttribute('data-avatar'), this.getAttribute('data-name'))" 
+                        data-avatar="${post.avatar || ''}" 
+                        data-name="${safeName}"
+                        class="flex-1 p-2 rounded hover:bg-gray-100 text-secondary">🔄 Chia sẻ</button>
             </div>
         </div>
     `;
@@ -541,37 +549,88 @@ export function showCreatePostModal(groupId = null) {
 
 /** Render một bình luận đơn lẻ, bao gồm cả Reply */
 function renderComment(comment, level = 0) {
-    // Ưu tiên dữ liệu từ API (comment.full_name, comment.avatar)
-    // Nếu không có mới dùng author mock (tùy chọn, nhưng tốt nhất nên bỏ mock nếu API đã chuẩn)
     const authorName = comment.full_name || 'Người dùng';
     const authorAvatar = comment.avatar;
     const timeAgo = getTimeAgo(comment.created_at || comment.timestamp);
 
-    const reactionIcon = REACTIONS.find(r => String(r.type) === String(comment.user_reaction_type)) || { icon: '👍', name: 'Thích' };
-
     const paddingLeft = level * 10;
 
+    // Parse JSON reactions
+    let reactionsHtml = '';
+    let myReaction = '';
+
+    try {
+        const reactionsObj = typeof comment.reactions === 'string' ? JSON.parse(comment.reactions) : (comment.reactions || {});
+        const emojiEntries = Object.entries(reactionsObj);
+
+        if (emojiEntries.length > 0) {
+            // Find my reaction
+            for (const [emoji, users] of emojiEntries) {
+                if (users.some(u => String(u) === String(window.currentUser.userId))) {
+                    myReaction = emoji;
+                    break;
+                }
+            }
+
+            // Render counts and icons (Style like Image 0)
+            const totalCount = emojiEntries.reduce((acc, [_, users]) => acc + users.length, 0);
+            reactionsHtml = `
+                <div class="absolute -bottom-2.5 -right-3 flex items-center bg-white dark:bg-slate-800 shadow-md border dark:border-slate-700 rounded-full py-0.5 px-1.5 z-20 transition-all hover:scale-110 cursor-pointer" 
+                     onclick="event.stopPropagation(); window.NewsfeedModule.showCommentReactionDetails('${comment.id}')">
+                    <div class="flex -space-x-1.5">
+                        ${emojiEntries.slice(0, 3).map(([emoji]) => `
+                            <span class="text-[16px] filter drop-shadow-sm leading-none flex items-center justify-center">${emoji}</span>
+                        `).join('')}
+                    </div>
+                    ${totalCount > 1 ? `<span class="text-[11px] font-extrabold text-blue-600 dark:text-blue-400 ml-1.5 pr-0.5">${totalCount}</span>` : ''}
+                </div>
+            `;
+        }
+    } catch (e) { console.error("Error parsing comment reactions", e); }
+
+
+    // Decide button label and color
+    let reactionLabel = 'Thích';
+    let btnClass = 'text-secondary font-semibold hover:text-blue-500';
+
+    if (myReaction) {
+        reactionLabel = myReaction;
+        // Map color based on emoji type
+        if (myReaction === '👍') btnClass = 'text-blue-500 font-bold';
+        else if (myReaction === '❤️') btnClass = 'text-red-500 font-bold';
+        else if (['😂', '😮', '😢', '🔥'].includes(myReaction)) btnClass = 'text-yellow-600 font-bold';
+        else btnClass = 'text-blue-500 font-bold';
+    }
+
     return `
-        <div class="flex gap-2 mb-2 ${level > 0 ? 'ml-6' : ''}" style="padding-left: ${paddingLeft}px;">
+        <div class="flex gap-2 mb-3 ${level > 0 ? 'ml-6' : ''}" style="padding-left: ${level > 0 ? (level - 1) * 10 : 0}px;">
             ${getAvatarWithStatusHtml(comment.user_id, authorAvatar, comment.gender, 'w-8 h-8')}
             
-            <div class="flex-1">
-                <div class="surface p-2 rounded-lg relative" style="background-color: var(--bg-comment, #f0f2f5);">
-                    <div class="font-semibold text-xs cursor-pointer" onclick="window.switchView('profile', '${comment.user_id}')">
+            <div class="flex-1 group">
+                <div class="surface p-2 px-3 rounded-2xl relative inline-block max-w-[90%] shadow-sm" style="background-color: var(--bg-comment, #f0f2f5);">
+                    <div class="font-bold text-xs cursor-pointer hover:underline mb-0.5 text-slate-800 dark:text-slate-200" onclick="window.switchView('profile', '${comment.user_id}')">
                         ${authorName}
                     </div>
-                    <div class="text-content text-sm">${parseContent(comment.content)}</div>
+                    <div class="text-content text-[13.5px] leading-snug whitespace-pre-wrap text-slate-700 dark:text-slate-300">${parseContent(comment.content)}</div>
+                    ${getLinkPreview(comment.content)}
+                    ${reactionsHtml}
                 </div>
 
-                <div class="flex items-center gap-3 mt-1 text-xs text-secondary">
-                    <span class="hover:underline cursor-pointer" 
-                          onclick="window.NewsfeedModule.setCommentReaction('${comment.id}', 1)">
-                        ${reactionIcon.icon}
-                    </span>
-                    <button onclick="window.NewsfeedModule.showReplyForm('${comment.post_id}', '${comment.id}', '${authorName}')" class="hover:underline">
+                <div class="flex items-center gap-3 mt-0.5 text-[11.5px] text-secondary ml-3">
+                    <div class="relative group/reaction" 
+                         onmouseenter="window.NewsfeedModule.showCommentReactions('${comment.id}', '${comment.post_id}', event, '${myReaction}')"
+                         onmouseleave="window.NewsfeedModule.hideCommentReactions('${comment.id}')">
+                         
+                        <span class="hover:underline cursor-pointer transition-colors ${btnClass}" 
+                               onclick="window.NewsfeedModule.showCommentReactions('${comment.id}', '${comment.post_id}', event, '${myReaction}')"> 
+                            ${reactionLabel}
+                        </span>
+                    </div>
+
+                    <button onclick="window.NewsfeedModule.showReplyForm('${comment.post_id}', '${comment.id}', '${authorName}')" class="hover:underline font-semibold text-secondary">
                         Trả lời
                     </button>
-                    <span>${timeAgo}</span>
+                    <span class="opacity-70">${timeAgo}</span>
                 </div>
                 
                 <div id="replies-${comment.id}" class="mt-2 space-y-1">
@@ -581,6 +640,31 @@ function renderComment(comment, level = 0) {
                 </div>
             </div>
         </div>
+    `;
+}
+
+/** TẠO PREVIEW LINK */
+function getLinkPreview(content) {
+    if (!content) return '';
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const match = content.match(urlRegex);
+    if (!match) return '';
+
+    const url = match[0];
+    let domain = '';
+    try { domain = new URL(url).hostname; } catch (e) { }
+
+    return `
+        <a href="${url}" target="_blank" onclick="event.stopPropagation()" class="block mt-2 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden group/card hover:shadow-md transition bg-white dark:bg-slate-800 max-w-sm">
+            <div class="h-24 bg-slate-100 dark:bg-slate-700 flex items-center justify-center relative overflow-hidden">
+                <img src="https://www.google.com/s2/favicons?sz=64&domain=${domain}" class="w-8 h-8 opacity-50" onerror="this.style.display='none'"/>
+                <span class="ml-2 text-slate-500 font-bold text-sm uppercase tracking-widest z-10">${domain}</span>
+            </div>
+            <div class="p-2">
+                <div class="text-[10px] text-slate-500 uppercase font-bold mb-0.5">${domain}</div>
+                <div class="font-bold text-xs text-slate-800 dark:text-slate-100 truncate">${url}</div>
+            </div>
+        </a>
     `;
 }
 
@@ -621,6 +705,8 @@ export async function loadComments(postId) {
 export function showComments(postId) {
     const modalBody = document.getElementById('modalBody');
     if (!modalBody) return;
+
+    window.activeCommentPostId = postId; // [NEW] Lưu Post ID để reload khi react
 
     // Khung Modal Comments
     modalBody.innerHTML = `
@@ -705,16 +791,117 @@ export function showReplyForm(postId, parentId, parentName) {
     submitBtn.onclick = () => window.NewsfeedModule.addComment(postId, parentId);
 }
 
-/** [NEW] Xử lý Reaction cho Comment (Stub) */
-export async function setCommentReaction(commentId, type) {
-    // Tạm thời hiển thị Toast
-    showToast(`Thả icon ${REACTIONS.find(r => r.type === type)?.icon || '👍'} cho comment ${commentId}`, 'info');
-    // TODO: Thực hiện gọi API POST /api/comments/:commentId/react nếu Backend hỗ trợ
+const commentReactionTimeouts = {};
+
+/** [NEW] Hiển thị Picker Reaction cho Comment */
+export function showCommentReactions(commentId, postId, event, currentReaction) {
+    // Clear timeout ẩn nếu có (để giữ popup khi hover lại)
+    if (commentReactionTimeouts[commentId]) {
+        clearTimeout(commentReactionTimeouts[commentId]);
+        delete commentReactionTimeouts[commentId];
+    }
+
+    // Check if valid popup already exists for this comment
+    const existing = document.getElementById(`commentReaction-${commentId}`);
+    if (existing) {
+        existing.classList.remove('hidden');
+        return;
+    }
+
+    // Remove other popups
+    document.querySelectorAll('.reaction-picker-popup').forEach(el => el.remove());
+
+    const emojis = ['❤️', '👍', '😂', '😮', '😢', '🔥'];
+    const picker = document.createElement('div');
+    picker.id = `commentReaction-${commentId}`;
+    picker.className = 'reaction-picker-popup fixed z-[9999] bg-white dark:bg-slate-800 shadow-xl border dark:border-slate-700 rounded-full flex gap-2 p-2 animate-scale-in';
+
+    // Thêm event handlers cho chính popup để giữ nó hiển thị khi hover vào
+    picker.onmouseenter = () => {
+        if (commentReactionTimeouts[commentId]) {
+            clearTimeout(commentReactionTimeouts[commentId]);
+        }
+    };
+    picker.onmouseleave = () => {
+        hideCommentReactions(commentId);
+    };
+
+    picker.innerHTML = emojis.map(e => `
+        <span onclick="window.NewsfeedModule.setCommentReaction('${commentId}', '${postId}', '${e}', this)" 
+              class="cursor-pointer hover:scale-125 transition-transform text-xl w-8 h-8 flex items-center justify-center rounded-full ${e === currentReaction ? 'bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500' : ''}">
+            ${e}
+        </span>
+    `).join('');
+
+    // Positioning
+    const btn = event.currentTarget || event.target;
+    // Tìm container cha (div.flex.items-center...) để định vị chính xác
+    const container = btn.closest('.flex.items-center');
+
+    // Fallback nếu không tìm thấy container (dù rất khó xảy ra)
+    const rect = container ? container.getBoundingClientRect() : btn.getBoundingClientRect();
+
+    document.body.appendChild(picker);
+
+    // Position slightly above the "Thích" button line
+    const top = rect.top - 50;
+    const left = rect.left + 20;
+
+    picker.style.top = `${top}px`;
+    picker.style.left = `${left}px`;
+}
+
+export function hideCommentReactions(commentId) {
+    commentReactionTimeouts[commentId] = setTimeout(() => {
+        const picker = document.getElementById(`commentReaction-${commentId}`);
+        if (picker) {
+            picker.remove(); // Xóa DOM luôn để tránh rác
+        }
+    }, 400); // 400ms delay
 }
 
 
-export async function showShareModal(id, type = 'post') {
+export async function setCommentReaction(commentId, postId, emoji, el) {
+    // [IMPROVED] Close picker immediately for better UX
+    document.querySelectorAll('.reaction-picker-popup').forEach(p => p.remove());
+
+    try {
+        const payload = {
+            commentId: Number(commentId),
+            emoji: emoji
+        };
+
+        const res = await apiFetch(`/posts/comment/react`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (!res) throw new Error("Không có phản hồi từ máy chủ");
+        const data = await res.json();
+
+        if (data.success) {
+            // Reload Comments để cập nhật UI
+            const targetPostId = postId || window.activeCommentPostId;
+            if (targetPostId) {
+                await loadComments(targetPostId);
+            } else {
+                console.warn("Missing targetPostId for reload");
+            }
+        } else {
+            showToast(data.message || "Không thể thả cảm xúc", "error");
+        }
+    } catch (err) {
+        console.error("Lỗi setCommentReaction:", err);
+        showToast("Lỗi hệ thống khi thả cảm xúc", "error");
+    }
+}
+
+
+export async function showShareModal(id, type = 'post', avatar = '', name = '') {
     const shareLink = type === 'post' ? `${window.location.origin}/#post/${id}` : `${window.location.origin}/#profile/${id}`;
+
+    // Lưu metadata để dùng khi gửi
+    const shareMetadata = { avatar, name };
 
     window.openModal('Chia sẻ đến...', `
         <div class="p-4 space-y-4">
@@ -743,7 +930,7 @@ export async function showShareModal(id, type = 'post') {
     `);
 
     try {
-        const res = await fetch(`${API_URL}/users/share-targets?user_id=${window.currentUser.userId}`);
+        const res = await apiFetch(`/users/share-targets?user_id=${window.currentUser.userId}`);
         const data = await res.json();
         const userListContainer = document.getElementById('shareUserList');
 
@@ -756,8 +943,10 @@ export async function showShareModal(id, type = 'post') {
             userListContainer.innerHTML = targets.map(t => `
                 <label class="flex items-center justify-between p-3 hover:bg-slate-50 rounded-2xl cursor-pointer transition group border border-transparent hover:border-slate-100">
                     <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-sm">
-                            ${t.type === 'group' ? '👥' : (t.avatar ? `<img src="${t.avatar}" class="w-full h-full rounded-full object-cover">` : t.name[0])}
+                        <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-sm overflow-hidden">
+                            ${t.type === 'group'
+                    ? '👥'
+                    : `<img src="${getAvatarUrl(t.avatar, t.gender || 'Other')}" class="w-full h-full object-cover">`}
                         </div>
                         <div>
                             <div class="font-bold text-sm text-slate-700">${t.name}</div>
@@ -782,7 +971,7 @@ export async function showShareModal(id, type = 'post') {
                 btnSubmit.innerText = selectedCount > 0 ? `Gửi (${selectedCount})` : 'Gửi ngay';
             });
 
-            btnSubmit.onclick = () => processShareAction(shareLink, type);
+            btnSubmit.onclick = () => processShareAction(shareLink, type, shareMetadata);
         };
 
         renderList(data.targets);
@@ -802,13 +991,16 @@ export async function showShareModal(id, type = 'post') {
 /**
  * @desc Thực hiện gửi tin nhắn chia sẻ dưới dạng Card chuyên biệt
  */
-function processShareAction(link, type) {
+function processShareAction(link, type, metadata = {}) {
     const selected = Array.from(document.querySelectorAll('.share-checkbox:checked')).map(cb => ({
         id: cb.value,
         type: cb.getAttribute('data-type')
     }));
 
-    const messageContent = `[SHARE_CARD|${type.toUpperCase()}|${link}]`;
+    // [New Format] [SHARE_CARD|TYPE|LINK|AVATAR|NAME]
+    const safeAvatar = metadata.avatar || 'default';
+    const safeName = metadata.name || 'Nội dung';
+    const messageContent = `[SHARE_CARD|${type.toUpperCase()}|${link}|${safeAvatar}|${safeName}]`;
 
     selected.forEach(target => {
         if (io && io.connected) {
@@ -1001,6 +1193,29 @@ export async function deletePost(postId) {
     API: REACTION (HOÀN THIỆN)
 ============================================================ */
 
+// Biến lưu timeout để xử lý hover
+const reactionTimeouts = {};
+
+export function showReactionPopup(postId, event) {
+    if (reactionTimeouts[postId]) {
+        clearTimeout(reactionTimeouts[postId]);
+        delete reactionTimeouts[postId];
+    }
+    const popup = document.getElementById(`reactionPopup-${postId}`);
+    if (popup) {
+        popup.classList.remove('hidden');
+    }
+}
+
+export function hideReactionPopup(postId) {
+    reactionTimeouts[postId] = setTimeout(() => {
+        const popup = document.getElementById(`reactionPopup-${postId}`);
+        if (popup) {
+            popup.classList.add('hidden');
+        }
+    }, 300); // Delay 300ms để người dùng kịp di chuột vào popup
+}
+
 /** Gửi reaction đến bài đăng */
 export async function setReaction(postId, type) {
     try {
@@ -1018,7 +1233,20 @@ export async function setReaction(postId, type) {
 
         if (res.ok && data.success) {
             // Tải lại feed để cập nhật biểu tượng và số lượng
-            loadPosts(window.currentUser.userId, 'postsFeed');
+            // Xử lý thông minh: Chỉ tải lại nếu đang ở view tương ứng
+            if (window.currentView === 'home' || window.currentView.startsWith('profile')) {
+                // Determine container ID
+                const containerId = window.currentView.startsWith('profile') ? 'profilePostsContainer' : 'postsFeed';
+                // Get User ID for loadPosts
+                const userIdToLoad = window.currentView.startsWith('profile')
+                    ? window.currentView.split('_')[1]
+                    : window.currentUser.userId;
+
+                loadPosts(userIdToLoad, containerId);
+            } else if (window.currentView.startsWith('group_detail_')) {
+                const groupId = window.currentView.split('_')[2];
+                window.GroupModule.renderGroupDetail(groupId);
+            }
         } else {
             showToast(data.message || 'Tương tác thất bại', 'error');
         }
@@ -1029,37 +1257,7 @@ export async function setReaction(postId, type) {
 }
 
 
-/* ============================================================
-    REACTION POPUP LOGIC
-============================================================ */
-
-// Hàm hiển thị Pop-up khi giữ chuột
-export function showReactionPopup(postId, event) {
-    event.preventDefault(); // Ngăn chặn context menu mặc định
-
-    // Đóng tất cả các pop-up khác trước
-    document.querySelectorAll('.reaction-popup').forEach(popup => {
-        if (popup.id !== `reactionPopup-${postId}`) {
-            popup.classList.add('hidden');
-        }
-    });
-
-    const popup = document.getElementById(`reactionPopup-${postId}`);
-    if (popup) {
-        popup.classList.toggle('hidden');
-    }
-}
-
-
-// Hàm ẩn Pop-up
-export function hideReactionPopup(postId) {
-    const popup = document.getElementById(`reactionPopup-${postId}`);
-    if (popup) {
-        popup.classList.add('hidden');
-    }
-}
-
-
+// [DUPLICATE REMOVED] Các hàm này đã được định nghĩa ở trên (dòng 1146-1158)
 // Xử lý sự kiện click ngoài để đóng Pop-up
 document.addEventListener('click', (e) => {
     if (!e.target.closest('.reaction-container')) {
@@ -1276,5 +1474,7 @@ window.NewsfeedModule = {
     switchArchiveTab,
     loadArchivedPosts,
     restorePost,
-    permanentDeletePost
+    permanentDeletePost,
+    showCommentReactions, // [NEW] Expose this function
+    hideCommentReactions
 };

@@ -7,6 +7,7 @@ const uploadMiddleware = postController.uploadMiddleware;
 router.get('/search', postController.searchPosts);
 router.get('/favorites', postController.getFavoritePosts);
 router.get('/hidden', postController.getHiddenPosts);
+router.post('/comment/react', postController.reactToComment); // [NEW] Moved up to avoid conflict with /:postId/react
 
 // --- 2. CÁC ROUTE ĐỘNG (DYNAMIC) ---
 router.get('/', postController.getPosts);

@@ -228,10 +228,13 @@ function renderGroupOrPageResults(items) {
         html += `
              <div class="p-3 hover:bg-slate-50 cursor-pointer text-content text-sm flex items-center gap-3 transition"
                    onclick="window.SearchModule.clickHistoryItem('${item.id}', 'group', '${item.full_name}')">
-                 <span class="text-xl bg-slate-100 w-10 h-10 rounded-lg flex items-center justify-center shadow-sm">
-                    ${item.type === 'group' ? '📢' : '📄'}
-                 </span>
-                 <span class="font-bold text-slate-700">${item.full_name}</span>
+                 <div class="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm overflow-hidden border border-gray-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800">
+                    ${item.avatar
+                ? `<img src="${window.IO_URL}/${item.avatar}" class="w-full h-full object-cover">`
+                : `<img src="images/default_group.png" class="w-full h-full object-cover">`
+            }
+                 </div>
+                 <span class="font-bold text-slate-700 dark:text-slate-200">${item.full_name}</span>
              </div>
         `;
     });

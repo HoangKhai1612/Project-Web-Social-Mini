@@ -439,6 +439,62 @@ exports.addComment = async (req, res) => {
     }
 };
 
+/**
+ * @desc Thả cảm xúc cho bình luận (Tương tự Chat - JSON Column)
+ * @route POST /api/posts/comment/react
+ */
+exports.reactToComment = async (req, res) => {
+    // Lấy link từ authMiddleware (yêu cầu login)
+    const userIdFromToken = req.user.userId || req.user.id;
+    const { commentId, emoji } = req.body;
+
+    if (!commentId || !emoji) {
+        return res.status(400).json({ success: false, message: "Thiếu dữ liệu (commentId hoặc emoji)." });
+    }
+
+    try {
+        // 0. Chuẩn hóa ID
+        const targetCommentId = Number(commentId);
+        const targetUserId = Number(userIdFromToken);
+
+        // 1. Lấy reactions hiện tại
+        const [rows] = await db.promise().query('SELECT reactions FROM comments WHERE id = ?', [targetCommentId]);
+        if (rows.length === 0) return res.status(404).json({ success: false, message: "Không tìm thấy bình luận." });
+
+        let reactions = {};
+        try {
+            reactions = rows[0].reactions ? (typeof rows[0].reactions === 'string' ? JSON.parse(rows[0].reactions) : rows[0].reactions) : {};
+        } catch (e) { reactions = {}; }
+
+        // 2. Logic Single Reaction
+        let removed = false;
+        for (const reactionType in reactions) {
+            // Đảm bảo so sánh dạng number
+            const index = reactions[reactionType].findIndex(uid => Number(uid) === targetUserId);
+            if (index > -1) {
+                reactions[reactionType].splice(index, 1);
+                if (reactions[reactionType].length === 0) delete reactions[reactionType];
+                if (reactionType === emoji) removed = true;
+            }
+        }
+
+        // 3. Apply New Reaction
+        if (!removed) {
+            if (!reactions[emoji]) reactions[emoji] = [];
+            reactions[emoji].push(targetUserId);
+        }
+
+        // 4. Update
+        const jsonString = JSON.stringify(reactions);
+        await db.promise().query('UPDATE comments SET reactions = ? WHERE id = ?', [jsonString, targetCommentId]);
+
+        res.json({ success: true, reactions });
+    } catch (err) {
+        console.error("Lỗi reactToComment:", err);
+        res.status(500).json({ success: false, message: "Lỗi server khi thả cảm xúc." });
+    }
+};
+
 
 /**
  * @route POST /api/posts/:postId/share

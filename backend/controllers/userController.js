@@ -95,7 +95,7 @@ exports.getGroups = async (req, res) => {
 
     const sql = `
         SELECT 
-            gc.id, gc.name, gc.created_at,
+            gc.id, gc.name, gc.created_at, gc.avatar,
             (SELECT COUNT(*) FROM group_chat_members WHERE group_chat_id = gc.id) AS member_count
         FROM group_chats gc
         JOIN group_chat_members gcm ON gc.id = gcm.group_chat_id

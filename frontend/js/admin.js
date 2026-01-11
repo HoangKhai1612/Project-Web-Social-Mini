@@ -67,11 +67,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const token = localStorage.getItem('token');
     if (!token) return window.location.href = 'index.html';
 
-    const userStr = localStorage.getItem('user');
+    // Check both keys common in this app
+    const userStr = localStorage.getItem('currentUser') || localStorage.getItem('user');
     if (userStr) {
         currentUser = JSON.parse(userStr);
-        document.getElementById('adminName').innerText = currentUser.full_name;
-        document.getElementById('adminAvatar').src = currentUser.avatar || 'images/default.png';
+        // Correcting property mismatch if it exists
+        const adminDisplayName = currentUser.name || currentUser.full_name || "Admin";
+        const adminId = currentUser.userId || currentUser.id;
+
+        document.getElementById('adminName').innerText = adminDisplayName;
+        document.getElementById('adminAvatar').src = currentUser.avatar || 'images/default_admin.png';
 
         // Update role display
         const roleDisplay = document.querySelector('.text-xs.text-slate-500');
@@ -128,12 +133,13 @@ window.switchModule = async function (moduleName) {
         pageTitle.innerText = "Cấu hình hệ thống";
         renderSettingsTemplate(contentArea);
         window.AdminModule.loadSettings();
+    } else if (moduleName === 'profile') {
+        pageTitle.innerText = "Hồ sơ của tôi";
+        window.AdminModule.loadMyProfile(contentArea);
     } else {
         contentArea.innerHTML = `<div class="p-10 text-center text-gray-400">Module chưa sẵn sàng.</div>`;
     }
 };
-
-// ... (Overview & Users modules) ...
 
 // ============================================
 // MODULE 4: CONTENT
@@ -299,12 +305,63 @@ async function loadAdmins() {
     const data = await res.json();
 
     if (data.success) {
-        tbody.innerHTML = data.admins.map(a => `
-            <tr class="border-b hover:bg-slate-50">
+        tbody.innerHTML = data.admins.map(a => {
+            const isSelf = String(a.id) === String(currentUser.id);
+            const isSuper = currentUser.role === 'super_admin';
+            const isAdmin = currentUser.role === 'admin';
+            const targetIsSuper = a.role === 'super_admin';
+
+            let canEdit = false;
+            let canDelete = false;
+
+            // Permission Logic
+            if (isSelf) {
+                canEdit = true; // Edit Profile
+                canDelete = false; // Never delete self
+            } else {
+                if (isSuper) {
+                    canEdit = true;
+                    canDelete = true;
+                } else if (isAdmin) {
+                    // [REQ] Admin can ONLY VIEW other admins. No Edit, No Delete.
+                    canEdit = false;
+                    canDelete = false;
+                }
+            }
+
+            let buttonsHtml = '';
+            if (canEdit) {
+                buttonsHtml += `<button onclick="window.AdminModule.editAdmin(${a.id}, '${a.username}', '${a.full_name}', '${a.role}')" class="text-blue-500 hover:text-blue-700 font-bold text-xs border border-blue-200 px-2 py-1 rounded hover:bg-blue-50 mr-1">Sửa</button>`;
+            }
+            if (canDelete) {
+                buttonsHtml += `<button onclick="window.AdminModule.deleteAdmin(${a.id})" class="text-red-500 hover:text-red-700 font-bold text-xs border border-red-200 px-2 py-1 rounded hover:bg-red-50">Xóa</button>`;
+            }
+            if (!canEdit && !canDelete) {
+                buttonsHtml = '<span class="text-slate-300 text-xs">(Chỉ xem)</span>';
+            }
+
+            // Avatar Logic
+            let avatarSrc = getAvatar(a.avatar, a.gender);
+            let fallbackAvatar = 'images/default_admin.png';
+
+            if (a.role === 'super_admin') {
+                fallbackAvatar = 'images/default_super_admin.png';
+                // If avatar is missing, force default super admin
+                if (!a.avatar) avatarSrc = fallbackAvatar;
+            } else {
+                // Admin
+                if (!a.avatar) avatarSrc = fallbackAvatar;
+            }
+
+            return `
+            <tr class="border-b hover:bg-slate-50 ${isSelf ? 'bg-blue-50/30' : ''}">
                 <td class="px-4 py-3 font-medium flex items-center gap-3">
-                    <img src="${getAvatar(a.avatar, a.gender)}" onerror="this.src='images/default_avatar_male.png'" class="w-8 h-8 rounded-full border">
+                    <img src="${avatarSrc}" onerror="this.src='${fallbackAvatar}'" class="w-8 h-8 rounded-full border">
                     <div>
-                        <div class="font-bold text-slate-700">${a.username}</div>
+                        <div class="font-bold text-slate-700">
+                            ${a.username}
+                            ${isSelf ? '<span class="text-xs text-blue-500 font-normal ml-1">(Bạn)</span>' : ''}
+                        </div>
                         <div class="text-xs text-slate-400">${a.email || 'N/A'}</div>
                     </div>
                 </td>
@@ -315,35 +372,91 @@ async function loadAdmins() {
                     </span>
                 </td>
                 <td class="px-4 py-3 text-right">
-                    ${(currentUser && currentUser.role === 'super_admin' && a.id !== currentUser.id) ?
-                `<button onclick="window.AdminModule.editAdmin(${a.id}, '${a.username}', '${a.full_name}', '${a.role}')" class="text-blue-500 hover:text-blue-700 font-bold text-xs border border-blue-200 px-2 py-1 rounded hover:bg-blue-50 mr-1">Sửa</button>
-                 <button onclick="window.AdminModule.deleteAdmin(${a.id})" class="text-red-500 hover:text-red-700 font-bold text-xs border border-red-200 px-2 py-1 rounded hover:bg-red-50">Xóa</button>`
-                : (currentUser && currentUser.role === 'admin') ?
-                    `<button onclick="window.AdminModule.editAdmin(${a.id}, '${a.username}', '${a.full_name}', '${a.role}')" class="text-blue-500 hover:text-blue-700 font-bold text-xs border border-blue-200 px-2 py-1 rounded hover:bg-blue-50">Sửa</button>
-                 <span class="text-slate-300 text-xs ml-2">(Chỉ xem)</span>`
-                    : '<span class="text-slate-300">-</span>'}
+                    ${buttonsHtml}
                 </td>
             </tr>
-        `).join('');
+        `}).join('');
     }
 }
 
 window.AdminModule.showAddAdminModal = function () {
-    const username = prompt("Nhập Username cho Admin mới:");
-    if (!username) return;
-    const full_name = prompt("Nhập Họ tên đầy đủ:");
-    if (!full_name) return;
-    const password = prompt("Nhập Mật khẩu:");
-    if (!password) return;
+    // Remove existing if any
+    document.getElementById('addAdminModal')?.remove();
 
-    // Ask for role if current user is super_admin
-    let role = 'admin'; // default
-    if (currentUser && currentUser.role === 'super_admin') {
-        const roleChoice = confirm("Chọn loại tài khoản:\n\nOK = Super Admin\nCancel = Admin thường");
-        role = roleChoice ? 'super_admin' : 'admin';
+    const isSuper = currentUser && currentUser.role === 'super_admin';
+
+    const modalHtml = `
+    <div id="addAdminModal" class="fixed inset-0 z-[3000] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="this.parentElement.remove()"></div>
+        <div class="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-scale-in">
+            <div class="bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-b border-slate-700">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <span>🛡️</span> Thêm Quản trị viên mới
+                </h3>
+            </div>
+            
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1">Username (Tên đăng nhập)</label>
+                    <input type="text" id="newAdminUsername" class="w-full p-2.5 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="VD: admin_moi">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1">Họ tên đầy đủ</label>
+                    <input type="text" id="newAdminFullname" class="w-full p-2.5 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="VD: Nguyễn Văn A">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1">Mật khẩu</label>
+                    <input type="password" id="newAdminPassword" class="w-full p-2.5 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="********">
+                </div>
+
+                ${isSuper ? `
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">Vai trò (Role)</label>
+                    <div class="flex gap-4">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="newAdminRole" value="admin" checked class="w-4 h-4 text-blue-600">
+                            <span class="ml-2 text-sm text-slate-700">Admin (Thường)</span>
+                        </label>
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="newAdminRole" value="super_admin" class="w-4 h-4 text-purple-600">
+                            <span class="ml-2 text-sm text-purple-700 font-bold">Super Admin</span>
+                        </label>
+                    </div>
+                </div>
+                ` : ''}
+
+                <div class="pt-2 flex gap-3">
+                    <button onclick="document.getElementById('addAdminModal').remove()" class="flex-1 py-2 bg-gray-100 text-slate-600 rounded-lg font-medium hover:bg-gray-200 transition">Hủy</button>
+                    <button onclick="window.AdminModule.submitAddAdmin()" class="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold shadow hover:bg-blue-700 transition">Thêm mới</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    document.getElementById('newAdminUsername').focus();
+}
+
+window.AdminModule.submitAddAdmin = function () {
+    const username = document.getElementById('newAdminUsername').value.trim();
+    const full_name = document.getElementById('newAdminFullname').value.trim();
+    const password = document.getElementById('newAdminPassword').value.trim();
+
+    // Default to 'admin' if role radio is hidden (regular admin adding admin?)
+    // Note: Conceptually regular admin usually shouldn't create other admins, but if permitted, role is 'admin'.
+    const roleRadio = document.querySelector('input[name="newAdminRole"]:checked');
+    const role = roleRadio ? roleRadio.value : 'admin';
+
+    if (!username || !full_name || !password) {
+        alert("Vui lòng nhập đầy đủ thông tin.");
+        return;
     }
 
     createAdmin({ username, full_name, password, role });
+    document.getElementById('addAdminModal').remove();
 }
 
 async function createAdmin(payload) {
@@ -373,33 +486,309 @@ window.AdminModule.deleteAdmin = async function (id) {
     }
 }
 
-window.AdminModule.editAdmin = async function (id, username, fullName, currentRole) {
-    // For now, we'll just allow changing the role
-    if (!currentUser || currentUser.role !== 'super_admin') {
-        alert("Chỉ Super Admin mới có thể sửa thông tin Admin.");
-        return;
+window.AdminModule.loadMyProfile = function (container) {
+    const tpl = document.getElementById('tpl-profile').content.cloneNode(true);
+    container.innerHTML = '';
+
+    // Fill Data
+    const u = currentUser;
+    if (!u) return;
+
+    const displayName = u.name || u.full_name || "Admin";
+    const username = u.username;
+
+    tpl.getElementById('my-profile-name').innerText = displayName;
+    tpl.getElementById('my-profile-username').innerText = '@' + username;
+    tpl.getElementById('my-profile-role').innerText = u.role === 'super_admin' ? 'Super Administrator' : 'Administrator';
+    tpl.getElementById('my-profile-joined').innerText = new Date(u.created_at || Date.now()).toLocaleDateString('vi-VN');
+
+    // Avatar Logic
+    let avatarSrc = getAvatar(u.avatar, u.gender);
+    let fallbackAvatar = 'images/default_admin.png';
+    if (u.role === 'super_admin') {
+        fallbackAvatar = 'images/default_super_admin.png';
+        if (!u.avatar) avatarSrc = fallbackAvatar;
     }
 
-    const newRole = confirm(`Thay đổi role cho ${username}?\n\nOK = Super Admin\nCancel = Admin thường`) ? 'super_admin' : 'admin';
+    const imgEl = tpl.getElementById('my-profile-avatar');
+    imgEl.src = avatarSrc;
+    imgEl.onerror = function () { this.src = fallbackAvatar; };
 
-    if (newRole === currentRole) {
-        alert("Không có thay đổi nào.");
-        return;
-    }
+    container.appendChild(tpl);
+}
 
-    const res = await authFetch(`/admin/admins/${id}/role`, {
-        method: 'PUT',
-        body: JSON.stringify({ role: newRole })
-    });
+window.AdminModule.editMyProfile = function () {
+    const u = currentUser;
+    if (!u) return;
+    const adminId = u.userId || u.id;
+    const adminName = u.name || u.full_name;
+    window.AdminModule.editAdmin(adminId, u.username, adminName, u.role);
+}
 
-    const data = await res.json();
-    if (data.success) {
-        alert("Đã cập nhật role thành công!");
-        loadAdmins();
+// Global variable to track editing
+let currentEditId = null;
+let tempVerifiedCredentials = null; // Store { current_username, current_password } after verification
+
+window.AdminModule.editAdmin = function (id, username, fullName, role) {
+    currentEditId = id;
+    const myId = currentUser.userId || currentUser.id;
+    const isSelf = String(id) === String(myId);
+    tempVerifiedCredentials = null; // Reset
+
+    // Remove old modal
+    document.getElementById('editAdminModal')?.remove();
+
+    if (isSelf) {
+        // Stage 1: Verification Form
+        renderVerificationModal(username); // Pass current username to prefill if reasonable, or leave blank? User said "nhập đúng tên". Let's leave blank or prefill? Usually prefill username is fine.
     } else {
-        alert("Lỗi: " + data.message);
+        // Edit Role Form (Standard)
+        renderRoleEditModal(id, username, fullName, role);
     }
 }
+
+// Helper: Stage 1 Modal
+function renderVerificationModal(currentUsername) {
+    const modalHtml = `
+    <div id="editAdminModal" class="fixed inset-0 z-[3000] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="this.parentElement.remove()"></div>
+        <div class="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-scale-in">
+            <div class="bg-gradient-to-r from-slate-700 to-slate-800 p-4 border-b border-slate-600">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <span>🔒</span> Xác thực tài khoản
+                </h3>
+            </div>
+            
+            <div class="p-6 space-y-4">
+                <p class="text-sm text-slate-500 mb-4">Vui lòng nhập thông tin đăng nhập hiện tại để tiếp tục chỉnh sửa.</p>
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1">Tên đăng nhập hiện tại</label>
+                    <input type="text" id="verifyUsername" value="${currentUsername}" class="w-full p-2.5 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1">Mật khẩu hiện tại</label>
+                    <input type="password" id="verifyPassword" class="w-full p-2.5 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="********">
+                </div>
+
+                <div class="pt-4 flex gap-3">
+                    <button onclick="document.getElementById('editAdminModal').remove()" class="flex-1 py-2 bg-gray-100 text-slate-600 rounded-lg font-medium hover:bg-gray-200 transition">Hủy</button>
+                    <button onclick="window.AdminModule.verifyAndNext(${currentEditId})" class="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold shadow hover:bg-blue-700 transition">Tiếp tục ➡</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    setTimeout(() => document.getElementById('verifyPassword')?.focus(), 100);
+}
+
+// NEW: Verify and Transition
+window.AdminModule.verifyAndNext = async function (id) {
+    const username = document.getElementById('verifyUsername').value.trim();
+    const password = document.getElementById('verifyPassword').value.trim();
+
+    if (!username || !password) return alert("Vui lòng nhập đầy đủ thông tin.");
+
+    try {
+        const res = await authFetch('/admin/verify-credentials', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            // Success: Store creds and Show Stage 2
+            tempVerifiedCredentials = { current_username: username, current_password: password };
+
+            // Remove Stage 1 Modal
+            document.getElementById('editAdminModal')?.remove();
+
+            // Show Stage 2 Modal (Update Info)
+            renderUpdateProfileModal(id);
+        } else {
+            alert("Lỗi: " + data.message);
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Lỗi kết nối máy chủ.");
+    }
+}
+
+// Helper: Stage 2 Modal
+function renderUpdateProfileModal(id) {
+    // We need current values to prefill. Since we might have verified verifyUsername != currentUser.username (unlikely but possible if admin changed someone else? No it's self), we use inputs.
+    // Actually best to re-use currentUser object since `isSelf` implies it.
+
+    // Note: We prefill NEW INFO with current values.
+    const displayName = currentUser.name || currentUser.full_name || "";
+    const modalHtml = `
+    <div id="editAdminModal" class="fixed inset-0 z-[3000] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="this.parentElement.remove()"></div>
+        <div class="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-scale-in">
+            <div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 border-b border-blue-500">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <span>✏️</span> Cập nhật thông tin
+                </h3>
+            </div>
+            
+            <div class="p-6 space-y-4">
+                 <div class="bg-green-50 text-green-700 p-2 text-xs rounded mb-2 border border-green-100 flex items-center gap-2">
+                    <span>✅</span> Đã xác thực bảo mật.
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1">Tên đăng nhập mới</label>
+                    <input type="text" id="newUsername" value="${tempVerifiedCredentials.current_username}" class="w-full p-2.5 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1">Họ tên hiển thị</label>
+                    <input type="text" id="newFullName" value="${displayName}" class="w-full p-2.5 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-1">Mật khẩu mới</label>
+                        <input type="password" id="newPassword" class="w-full p-2.5 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Để trống nếu giữ cũ">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-1">Nhập lại mật khẩu</label>
+                        <input type="password" id="confirmNewPassword" class="w-full p-2.5 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="...">
+                    </div>
+                </div>
+
+                <div class="pt-4 flex gap-3">
+                    <button onclick="document.getElementById('editAdminModal').remove()" class="flex-1 py-2 bg-gray-100 text-slate-600 rounded-lg font-medium hover:bg-gray-200 transition">Hủy</button>
+                    <button onclick="window.AdminModule.submitEditAdmin(true)" class="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold shadow hover:bg-blue-700 transition">Lưu thay đổi</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function renderRoleEditModal(id, username, fullName, role) {
+    const modalHtml = `
+    <div id="editAdminModal" class="fixed inset-0 z-[3000] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="this.parentElement.remove()"></div>
+        <div class="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-scale-in">
+             <div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 border-b border-blue-500">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <span>⚖️</span> Phân quyền Admin
+                </h3>
+            </div>
+            
+            <div class="p-6 space-y-4">
+                <div class="mb-4">
+                    <p class="text-sm text-slate-500 mb-1">Đang sửa quyền hạn cho:</p>
+                    <p class="font-bold text-lg text-slate-800">${fullName} (@${username})</p>
+                </div>
+                <div>
+                     <label class="block text-sm font-bold text-slate-700 mb-2">Vai trò mới</label>
+                    <div class="flex flex-col gap-2">
+                        <label class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-slate-50 ${role === 'admin' ? 'bg-blue-50 border-blue-200' : ''}">
+                            <input type="radio" name="editRole" value="admin" ${role === 'admin' ? 'checked' : ''} class="w-4 h-4 text-blue-600">
+                            <span class="ml-3 font-medium">Admin (Thường)</span>
+                        </label>
+                        <label class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-slate-50 ${role === 'super_admin' ? 'bg-purple-50 border-purple-200' : ''}">
+                            <input type="radio" name="editRole" value="super_admin" ${role === 'super_admin' ? 'checked' : ''} class="w-4 h-4 text-purple-600">
+                            <span class="ml-3 font-medium text-purple-700">Super Admin</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="pt-4 flex gap-3">
+                    <button onclick="document.getElementById('editAdminModal').remove()" class="flex-1 py-2 bg-gray-100 text-slate-600 rounded-lg font-medium hover:bg-gray-200 transition">Hủy</button>
+                    <button onclick="window.AdminModule.submitEditAdmin(false)" class="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold shadow hover:bg-blue-700 transition">Lưu thay đổi</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+
+window.AdminModule.submitEditAdmin = async function (isSelf) {
+    if (!currentEditId) {
+        console.error("Missing currentEditId");
+        return;
+    }
+
+    if (isSelf) {
+        if (!tempVerifiedCredentials) return alert("Phiên làm việc hết hạn. Vui lòng thử lại.");
+
+        const new_username = document.getElementById('newUsername').value.trim();
+        const full_name = document.getElementById('newFullName').value.trim();
+        const new_password = document.getElementById('newPassword').value.trim();
+        const confirm_new_password = document.getElementById('confirmNewPassword').value.trim();
+
+        if (!new_username || !full_name) {
+            return alert("Vui lòng nhập đầy đủ tên đăng nhập và họ tên.");
+        }
+        if (new_password && new_password !== confirm_new_password) {
+            return alert("Mật khẩu mới và xác nhận mật khẩu không khớp.");
+        }
+
+        try {
+            const res = await authFetch('/admin/admins/profile', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    ...tempVerifiedCredentials, // Pass the verified old credentials
+                    new_username,
+                    full_name,
+                    new_password
+                })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                alert(data.message);
+                // Update local storage
+                if (currentUser) {
+                    currentUser.name = full_name; // Update 'name' property
+                    currentUser.full_name = full_name;
+                    currentUser.username = new_username;
+                    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    localStorage.setItem('user', JSON.stringify(currentUser));
+                    document.getElementById('adminName').innerText = full_name;
+
+                    // Refresh Profile View if open
+                    if (document.getElementById('my-profile-name')) {
+                        window.AdminModule.loadMyProfile(document.getElementById('contentArea'));
+                    }
+                }
+
+                document.getElementById('editAdminModal')?.remove();
+                tempVerifiedCredentials = null; // Clear
+                if (typeof loadAdmins === 'function') loadAdmins();
+            } else {
+                alert("Lỗi: " + data.message);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Lỗi kết nối máy chủ.");
+        }
+
+    } else {
+        // Handle Role Update
+        const role = document.querySelector('input[name="editRole"]:checked')?.value;
+        if (!role) return;
+
+        const res = await authFetch(`/admin/admins/${currentEditId}/role`, {
+            method: 'PUT',
+            body: JSON.stringify({ role })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message);
+            document.getElementById('editAdminModal')?.remove();
+            if (typeof loadAdmins === 'function') loadAdmins();
+        } else {
+            alert("Lỗi: " + data.message);
+        }
+    }
+};
 
 // ============================================
 // MODULE 2: USERS
@@ -431,21 +820,45 @@ async function loadUsers(query = '') {
             const isAdmin = currentUser.role === 'admin';
 
             let canLock = false;
-            // Super Admin: Can lock anyone except self
-            if (isSuper && !isSelf) {
+
+            // Logig Khóa: "supper_admin có thể khóa admin và user, còn admin không thể khóa supper_admin chỉ có thể khóa user"
+            if (isSelf) {
+                canLock = false; // Không thể tự khóa chính mình
+            } else if (isSuper) {
+                // Super Admin can khóa tất cả (user, admin, super_admin khác)
+                // Note: User didn't say Super Admin can't lock Super Admin, just "admin không thể khóa supper_admin"
                 canLock = true;
+            } else if (isAdmin) {
+                // Admin chỉ có thể khóa User
+                if (u.role === 'user') {
+                    canLock = true;
+                }
             }
-            // Admin: Can ONLY lock 'user' role
-            else if (isAdmin && u.role === 'user') {
-                canLock = true;
+
+            // Avatar Logic for Users List
+            let avatarSrc = getAvatar(u.avatar, u.gender);
+            let fallbackAvatar = 'images/default_avatar_male.png';
+
+            if (u.role === 'super_admin') {
+                fallbackAvatar = 'images/default_super_admin.png';
+                if (!u.avatar) avatarSrc = fallbackAvatar;
+            } else if (u.role === 'admin') {
+                fallbackAvatar = 'images/default_admin.png';
+                if (!u.avatar) avatarSrc = fallbackAvatar;
+            } else {
+                // Regular User - fallback handled by getAvatar usually, or default logic
+                // If avatar is missing, getAvatar returns gender default.
+                // We keep fallback as male/female?
+                // Simple fallback:
+                if (u.gender === 'female' || u.gender === 'Nữ') fallbackAvatar = 'images/default_avatar_female.png';
             }
 
             return `
             <tr class="bg-white border-b hover:bg-slate-50 transition ${isSelf ? 'bg-blue-50/50' : ''}">
                 <td class="px-6 py-4 flex items-center whitespace-nowrap">
                     <img class="w-8 h-8 rounded-full mr-3 object-cover" 
-                         src="${getAvatar(u.avatar, u.gender)}" 
-                         onerror="this.src='images/default.png'">
+                         src="${avatarSrc}" 
+                         onerror="this.src='${fallbackAvatar}'">
                     <div>
                         <div class="font-bold text-slate-800">
                             ${u.full_name} 

@@ -45,12 +45,56 @@ async function executeGroupDelete(groupId, res) {
 }
 
 
+// ... (imports)
+const upload = require('../middleware/uploadMiddleware'); // Import middleware upload
+
+// ... (existing helper functions)
+
+// ...
+
 // ============================================
 // CÁC HÀM CONTROLLER
 // ============================================
 
+async function uploadGroupAvatar(req, res) {
+    const groupId = req.params.groupId;
+    const userId = req.body.user_id; // Multer processes body
+    const file = req.file;
+
+    console.log('--- UPLOAD GROUP AVATAR REQUEST ---');
+    console.log('GroupId:', groupId);
+    console.log('UserId (req.body):', userId);
+    console.log('File:', file);
+    console.log('Body:', req.body);
+
+    if (!groupId || !file) {
+        return res.status(400).json({ success: false, message: 'Thiếu ID nhóm hoặc file ảnh.' });
+    }
+
+    try {
+        // Kiểm tra quyền (Admin/Creator)
+        const isAdmin = await isAdminOfGroup(userId, groupId);
+        console.log('Is Admin/Creator check:', isAdmin);
+
+        if (!isAdmin) {
+            return res.status(403).json({ success: false, message: 'Bạn không có quyền thay đổi ảnh đại diện nhóm.' });
+        }
+
+        const avatarUrl = `uploads/groups/${file.filename}`; // Đường dẫn lưu trữ
+
+        // Cập nhật Database
+        await db.promise().query('UPDATE groups SET avatar = ? WHERE id = ?', [avatarUrl, groupId]);
+
+        res.json({ success: true, message: 'Cập nhật ảnh đại diện nhóm thành công.', avatarUrl: avatarUrl });
+
+    } catch (err) {
+        console.error('Lỗi upload avatar nhóm:', err);
+        res.status(500).json({ success: false, message: 'Lỗi upload ảnh.' });
+    }
+}
+
 async function getMyGroups(req, res) {
-    // ... (Giữ nguyên logic)
+    // ... (Giữ nguyên logic valid check)
     const userId = req.query.user_id;
     if (!userId) {
         return res.status(400).json({ success: false, message: 'Missing user ID.' });
@@ -58,7 +102,7 @@ async function getMyGroups(req, res) {
 
     try {
         const createdSql = `
-            SELECT g.id, g.name, g.description, g.creator_id, g.created_at,
+            SELECT g.id, g.name, g.avatar, g.description, g.creator_id, g.created_at,
             (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id AND gm.status = 'approved') AS member_count,
             (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id AND gm.status = 'pending') AS pending_count
             FROM groups g
@@ -67,7 +111,7 @@ async function getMyGroups(req, res) {
         const [createdGroups] = await db.promise().query(createdSql, [userId]);
 
         const joinedSql = `
-            SELECT g.id, g.name, g.description, g.creator_id, g.created_at
+            SELECT g.id, g.name, g.avatar, g.description, g.creator_id, g.created_at
             FROM groups g
             JOIN group_members gm ON g.id = gm.group_id
             WHERE gm.user_id = ? AND gm.status = 'approved' AND g.creator_id != ?
@@ -89,7 +133,7 @@ async function getGroupDetail(req, res) {
 
     try {
         const [groupResults] = await db.promise().query(
-            `SELECT g.id, g.name, g.description, g.creator_id, g.created_at,
+            `SELECT g.id, g.name, g.avatar, g.description, g.creator_id, g.created_at,
             (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id AND gm.status = 'approved') AS member_count,
             (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id AND gm.status = 'pending') AS pending_count
             FROM groups g WHERE g.id = ?`,
@@ -190,7 +234,7 @@ async function createGroup(req, res) {
 async function getGroups(req, res) {
     // ... (Giữ nguyên logic)
     const sql = `
-        SELECT g.*, u.full_name AS creator_name,
+        SELECT g.*, g.avatar, u.full_name AS creator_name,
         (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id AND gm.status = 'approved') AS member_count
         FROM groups g
         JOIN users u ON g.creator_id = u.id
@@ -212,7 +256,7 @@ async function searchGroups(req, res) {
 
     const searchPattern = `%${query}%`;
     const sql = `
-        SELECT g.id, g.name, g.description, COUNT(gm.user_id) AS member_count
+        SELECT g.id, g.name, g.avatar, g.description, COUNT(gm.user_id) AS member_count
         FROM groups g
         LEFT JOIN group_members gm ON g.id = gm.group_id AND gm.status = 'approved'
         WHERE g.name LIKE ? OR g.description LIKE ?
@@ -394,8 +438,8 @@ async function getGroupMembers(req, res) {
 
     try {
         const membersSql = `
-            SELECT gm.user_id, gm.role, gm.joined_at,
-                   u.full_name, u.email, u.avatar, u.gender, g.creator_id
+            SELECT gm.user_id, gm.role,
+                   u.full_name, u.avatar, u.gender, g.creator_id
             FROM group_members gm
             JOIN users u ON gm.user_id = u.id
             JOIN groups g ON gm.group_id = g.id
@@ -542,6 +586,28 @@ async function checkMemberStatus(req, res) {
     }
 }
 
+async function updateGroupSettings(req, res) {
+    const groupId = req.params.groupId;
+    const { user_id, name } = req.body;
+
+    if (!groupId || !user_id || !name) {
+        return res.status(400).json({ success: false, message: 'Thiếu thông tin.' });
+    }
+
+    try {
+        const isCreator = await isCreatorOfGroup(user_id, groupId);
+        if (!isCreator) {
+            return res.status(403).json({ success: false, message: 'Chỉ Chủ Page mới được đổi tên.' });
+        }
+
+        await db.promise().query('UPDATE groups SET name = ? WHERE id = ?', [name, groupId]);
+        res.json({ success: true, message: 'Đổi tên Page thành công.' });
+    } catch (err) {
+        console.error('Lỗi đổi tên Group:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server.' });
+    }
+}
+
 // =======================
 // EXPORTS
 // =======================
@@ -559,5 +625,7 @@ module.exports = {
     manageMemberRole,
     isCreatorOfGroup,
     transferAdminRole,
-    checkMemberStatus, // EXPORT HÀM MỚI
+    checkMemberStatus,
+    uploadGroupAvatar,
+    updateGroupSettings
 };

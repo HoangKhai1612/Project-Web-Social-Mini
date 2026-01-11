@@ -10,6 +10,7 @@ router.post('/register', upload.fields([
     { name: 'cover', maxCount: 1 }
 ]), authController.register);
 router.post('/login', authController.login);
+router.post('/forgot-password', authController.forgotPassword);
 router.put('/password', authController.changePassword);
 
 module.exports = router;

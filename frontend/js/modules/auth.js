@@ -202,6 +202,87 @@ export function renderRegister() {
     }
 }
 
+/**
+ * Render View Quên mật khẩu
+ */
+export function renderForgotPassword() {
+    window.currentView = 'forgot_password';
+    ensureAuthShell();
+
+    const authContainer = document.getElementById('authContainer');
+    if (!authContainer) return;
+
+    authContainer.innerHTML = `
+        <div class="text-center mb-6">
+            <h1 class="text-2xl font-black text-slate-800">Khôi phục mật khẩu</h1>
+            <p class="text-slate-500 text-sm mt-2">Xác thực bằng Tên đăng nhập & Ngày sinh</p>
+        </div>
+        <form id="forgotForm" class="space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase ml-1 mb-1">Tên đăng nhập / Email</label>
+                <input id="forgotUsername" type="text" placeholder="Nhập username..." class="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-500 transition" required>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase ml-1 mb-1">Ngày sinh (Để xác minh)</label>
+                <input id="forgotBirthday" type="date" class="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-500 transition" required>
+            </div>
+            <hr class="border-slate-100">
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase ml-1 mb-1">Mật khẩu mới</label>
+                <input id="forgotNewPassword" type="password" placeholder="Nhập mật khẩu mới..." class="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-500 transition" required>
+            </div>
+            
+            <button type="submit" class="w-full p-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-100 hover:bg-blue-700 transition">Đặt lại mật khẩu</button>
+        </form>
+        <div class="mt-6 text-center">
+            <button onclick="window.renderLogin()" class="text-slate-500 font-bold hover:underline">Quay lại Đăng nhập</button>
+        </div>
+    `;
+
+    document.getElementById('forgotForm')?.addEventListener('submit', handleForgotPassword);
+}
+
+/**
+ * Xử lý gửi yêu cầu khôi phục mật khẩu
+ */
+export async function handleForgotPassword(e) {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+
+    const payload = {
+        username: document.getElementById('forgotUsername').value.trim(),
+        birthday: document.getElementById('forgotBirthday').value,
+        new_password: document.getElementById('forgotNewPassword').value.trim()
+    };
+
+    try {
+        btn.disabled = true;
+        btn.textContent = 'Đang xử lý...';
+
+        const res = await fetch(`${API_URL}/auth/forgot-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+            showToast(data.message, 'success');
+            setTimeout(() => renderLogin(), 2000);
+        } else {
+            showToast(data.message || 'Xác thực thất bại', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Đặt lại mật khẩu';
+        }
+    } catch (e) {
+        console.error(e);
+        showToast('Lỗi kết nối máy chủ', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Đặt lại mật khẩu';
+    }
+}
+
 // ========================
 //  LOGOUT LOGIC (ĐÃ SỬA LỖI ĐỨNG MÀN HÌNH)
 // ========================
@@ -232,4 +313,6 @@ export function handleLogout() {
 // Đảm bảo các hàm này có thể được gọi từ onclick trong HTML templates
 window.renderLogin = renderLogin;
 window.renderRegister = renderRegister;
+window.renderForgotPassword = renderForgotPassword;
+window.handleForgotPassword = handleForgotPassword;
 window.handleLogout = handleLogout;

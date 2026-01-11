@@ -202,3 +202,42 @@ exports.changePassword = async (req, res) => {
         res.status(500).json({ success: false, message: 'Lỗi cơ sở dữ liệu.' });
     }
 };
+
+/**
+ * @route POST /api/auth/forgot-password
+ * @desc Khôi phục mật khẩu qua Tên đăng nhập & Ngày sinh
+ */
+exports.forgotPassword = async (req, res) => {
+    const { username, birthday, new_password } = req.body;
+
+    if (!username || !birthday || !new_password) {
+        return res.status(400).json({ success: false, message: 'Vui lòng điền đầy đủ thông tin xác thực.' });
+    }
+
+    try {
+        // 1. Kiểm tra khớp username và birthday
+        const [results] = await db.promise().query(
+            'SELECT id FROM users WHERE username = ? AND birthday = ?',
+            [username, birthday]
+        );
+
+        if (results.length === 0) {
+            return res.status(404).json({ success: false, message: 'Thông tin xác thực không chính xác (Tên đăng nhập hoặc Ngày sinh).' });
+        }
+
+        const userId = results[0].id;
+
+        // 2. Hash mật khẩu mới
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(new_password, salt);
+
+        // 3. Cập nhật
+        await db.promise().query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId]);
+
+        res.json({ success: true, message: 'Khôi phục mật khẩu thành công! Hãy đăng nhập bằng mật khẩu mới.' });
+
+    } catch (error) {
+        console.error("Lỗi khôi phục mật khẩu:", error);
+        res.status(500).json({ success: false, message: 'Lỗi server khi khôi phục mật khẩu.' });
+    }
+};

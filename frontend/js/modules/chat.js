@@ -277,7 +277,7 @@ function renderChatListItem(item, type) {
              class="flex justify-between items-center p-3 hover:bg-slate-50 cursor-pointer border-b border-gray-100 transition duration-200">
             <div class="flex items-center gap-3">
                 ${isGroup
-            ? `<div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-xl overflow-hidden border border-gray-200 flex-shrink-0">👥</div>`
+            ? `<img src="${item.avatar ? `${window.IO_URL}/${item.avatar}` : 'images/default_group_chat.png'}" class="w-10 h-10 rounded-xl object-cover border border-gray-200 flex-shrink-0 bg-white dark:bg-slate-800">`
             : getAvatarWithStatusHtml(id, item.avatar, item.gender, 'w-10 h-10')
         }
                 <div class="overflow-hidden">
@@ -370,7 +370,7 @@ let replyingTo = null; // Lưu tin nhắn đang được reply
 function renderChatDetailShell(targetId, targetName, isGroup, avatar, gender) {
     const config = getConfig();
     const avatarHtml = isGroup
-        ? `<div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-xl border border-gray-200">👥</div>`
+        ? `<img src="${avatar ? `${window.IO_URL}/${avatar}` : 'images/default_group_chat.png'}" id="chatHeaderAvatar" class="w-10 h-10 rounded-xl object-cover border border-gray-200 bg-white dark:bg-slate-800">`
         : getAvatarWithStatusHtml(targetId, avatar, gender, 'w-10 h-10');
 
     return `
@@ -438,6 +438,12 @@ async function loadChatHistory(targetId, isGroup = false) {
             // Cập nhật tên Header (Dùng display_name - Biệt danh từ Server)
             if (headerName) headerName.innerText = isGroup ? (currentChatSettings.group_name || "Nhóm") : (currentChatSettings.display_name);
 
+            // [NEW] Cập nhật Avatar Header nếu là Group
+            if (isGroup && currentChatSettings.avatar) {
+                const avatarEl = document.getElementById('chatHeaderAvatar');
+                if (avatarEl) avatarEl.src = `${window.IO_URL}/${currentChatSettings.avatar}`;
+            }
+
             renderSettingsMenu(isGroup);
 
             // Kiểm tra trạng thái Chặn (Block) cho chat 1-1
@@ -472,7 +478,11 @@ async function loadChatHistory(targetId, isGroup = false) {
                 // Nếu KHÔNG (tức là đổi người hoặc hết tin), thì đây là tin cuối cùng của group -> Hiện avatar
                 const isLastInGroup = !nextMsg || String(nextMsg.sender_id) !== String(msg.sender_id);
 
-                htmlContent += renderMessage(msg, isLastInGroup);
+                // [NEW] Kiểm tra tin nhắn ĐẦU TIÊN của group -> Hiện nickname
+                const prevMsg = messages[i - 1];
+                const isFirstInGroup = !prevMsg || String(prevMsg.sender_id) !== String(msg.sender_id);
+
+                htmlContent += renderMessage(msg, isLastInGroup, isFirstInGroup, isGroup); // Pass thêm cờ isGroup
             }
 
             messageList.innerHTML = htmlContent || `<div class="p-20 text-center text-gray-300 text-sm italic">Bắt đầu trò chuyện ngay!</div>`;
@@ -489,6 +499,10 @@ function renderSettingsMenu(isGroup) {
         const isAdmin = (currentChatSettings.my_role === 'admin');
         content.innerHTML = `
             <div class="text-[10px] font-black text-slate-400 px-3 py-2 uppercase border-b mb-1">Quản lý Nhóm</div>
+            
+            <button onclick="document.getElementById('chatGroupAvatarInput').click()" class="w-full text-left p-3 hover:bg-slate-50 rounded-xl text-sm transition text-indigo-600 font-medium h-full">📷 Đổi ảnh nhóm</button>
+            <input type="file" id="chatGroupAvatarInput" class="hidden" accept="image/*" onchange="window.ChatModule.handleChatAvatarUpload(event)">
+
             <button onclick="window.ChatModule.viewMembers('${currentChatTarget}')" class="w-full text-left p-3 hover:bg-slate-50 rounded-xl text-sm transition">👥 Thành viên</button>
             ${isAdmin ? `
                 <button onclick="window.ChatModule.addMemberPrompt('${currentChatTarget}')" class="w-full text-left p-3 hover:bg-slate-50 rounded-xl text-sm transition">➕ Thêm người (Bạn bè)</button>
@@ -515,7 +529,7 @@ function renderSettingsMenu(isGroup) {
 
 
 // Tìm hàm renderMessage trong chat.js và cập nhật đoạn xử lý content:
-function renderMessage(msg, showAvatar = true) {
+function renderMessage(msg, showAvatar = true, isFirstInGroup = false, isGroupChat = false) {
     // 0. Kiểm tra người gửi để căn lề trái/phải
     const isSender = String(msg.sender_id) === String(window.currentUser.userId);
 
@@ -541,8 +555,11 @@ function renderMessage(msg, showAvatar = true) {
     let replyHtml = '';
     if (msg.reply_content) {
         replyHtml = `
-            <div class="bg-black/10 dark:bg-white/10 p-2 mb-2 rounded-lg text-[11px] italic opacity-80 border-l-4 border-blue-400">
+            <div class="bg-black/10 dark:bg-white/10 p-2 mb-2 rounded-lg text-[11px] italic opacity-80 border-l-4 border-blue-400 cursor-pointer hover:bg-black/20 dark:hover:bg-white/20 transition"
+                 onclick="window.ChatModule.scrollToMessage('${msg.reply_to_id}')">
+                <span class="font-bold block text-[10px] mb-0.5">Trả lời:</span>
                 ${msg.reply_content}
+                ${msg.reply_media_url ? '<span class="text-[9px] text-blue-500 block">[Hình ảnh]</span>' : ''}
             </div>
         `;
     }
@@ -578,7 +595,8 @@ function renderMessage(msg, showAvatar = true) {
             reactionsHtml = `
                 <div class="absolute -bottom-2 ${isSender ? 'right-2' : 'left-2'} flex gap-1 bg-white dark:bg-slate-800 border dark:border-slate-700 px-1.5 py-0.5 rounded-full shadow-sm z-10 text-[10px]">
                     ${Object.entries(reactionsObj).map(([emoji, users]) => `
-                        <span class="flex items-center gap-0.5 font-bold text-slate-500">
+                        <span class="flex items-center gap-0.5 font-bold text-slate-500 cursor-pointer hover:scale-110 transition"
+                              onclick="window.ChatModule.sendReaction('${msg.id}', '${emoji}')">
                             ${emoji} <span class="opacity-70">${users.length}</span>
                         </span>
                     `).join('')}
@@ -619,32 +637,59 @@ function renderMessage(msg, showAvatar = true) {
         `;
     }
 
+    /* ======================================================
+       [NEW] LOGIC HIỂN THỊ NICKNAME CHO GROUP CHAT
+       ====================================================== */
+    let nicknameHtml = '';
+    if (isGroupChat && isFirstInGroup && !isSender) {
+        nicknameHtml = `<div class="text-[10px] text-gray-500 dark:text-gray-400 ml-1 mb-0.5">${msg.display_name || msg.sender_name}</div>`;
+    }
+
     return `
-        <div class="flex flex-col ${isSender ? 'items-end' : 'items-start'} w-full animate-fade-in group mb-1">
+        <div id="message-${msg.id}" class="flex flex-col ${isSender ? 'items-end' : 'items-start'} w-full animate-fade-in group mb-0.5 relative">
             <div class="flex items-end gap-0 max-w-[90%] md:max-w-[75%] ${isSender ? 'flex-row-reverse' : ''}">
                 ${avatarHtml}
                 
-                <div class="relative ${bubbleClass} ${content.includes('share-card') ? 'p-1.5' : 'px-4 py-2.5'} text-sm leading-relaxed transition hover:shadow-md">
-                    ${replyHtml}
-                    ${mediaHtml}
-                    <div class="break-words">${content}</div>
-                    ${reactionsHtml}
+                <div class="flex flex-col ${isSender ? 'items-end' : 'items-start'}">
+                    ${nicknameHtml} 
+                    <div class="relative ${bubbleClass} ${content.includes('share-card') ? 'p-1.5' : 'px-4 py-2.5'} text-sm leading-relaxed transition hover:shadow-md">
+                        ${replyHtml}
+                        ${mediaHtml}
+                        <div class="break-words">${content}</div>
+                        ${reactionsHtml}
+                    </div>
                 </div>
 
-                <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 self-center px-2">
+                <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 self-center px-2 relative reaction-btn-container">
                     <button onclick="window.ChatModule.setReply('${msg.id}', 'Trả lời tin nhắn...')" 
                             class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-xs text-gray-400" title="Trả lời">
                         💬
                     </button>
-                    <button onclick="window.ChatModule.showReactions('${msg.id}')" 
-                            class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-xs text-gray-400" title="Thả cảm xúc">
-                        ❤️
-                    </button>
+                    ${(() => {
+            // Tính toán phản ứng của tôi để truyền vào
+            let myReaction = '';
+            if (msg.reactions) {
+                const reactionsObj = typeof msg.reactions === 'string' ? JSON.parse(msg.reactions) : msg.reactions;
+                for (const [emoji, users] of Object.entries(reactionsObj)) {
+                    if (users.includes(window.currentUser.userId)) {
+                        myReaction = emoji;
+                        break;
+                    }
+                }
+            }
+            return `
+                        <button onclick="window.ChatModule.showReactions('${msg.id}', event, '${myReaction}')" 
+                                class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-xs text-gray-400 ${myReaction ? 'text-red-500' : ''}" title="Thả cảm xúc">
+                            ❤️
+                        </button>`;
+        })()}
                 </div>
             </div>
         </div>
     `;
 }
+
+
 
 // ============================================
 // CÁC HÀM XỬ LÝ (EXPORT)
@@ -675,49 +720,99 @@ export async function handleBlock(targetId, action) {
 
 export async function updateAlias() {
     toggleChatSettings();
-    const newAlias = prompt("Nhập biệt danh:");
-    if (!newAlias) return;
-    try {
-        const res = await apiFetch(`/chat/settings/update`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: window.currentUser.userId,
-                target_id: currentChatTarget,
-                field: 'alias',
-                value: newAlias,
-                is_group: window.isCurrentChatGroup
-            })
-        });
-        if (res && res.ok) {
-            document.getElementById('chatHeaderName').innerText = newAlias;
-            showToast("Đã cập nhật!");
-            loadChatHistory(currentChatTarget, window.isCurrentChatGroup);
-        }
-    } catch (e) { showToast("Lỗi hệ thống", "error"); }
+    showInputModal("Đặt biệt danh", "Nhập biệt danh...", "", async (newAlias) => {
+        try {
+            const res = await apiFetch(`/chat/settings/update`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: window.currentUser.userId,
+                    target_id: currentChatTarget,
+                    field: 'alias',
+                    value: newAlias,
+                    is_group: window.isCurrentChatGroup
+                })
+            });
+            if (res && res.ok) {
+                document.getElementById('chatHeaderName').innerText = newAlias;
+                showToast("Đã cập nhật!");
+                loadChatHistory(currentChatTarget, window.isCurrentChatGroup);
+            }
+        } catch (e) { showToast("Lỗi hệ thống", "error"); }
+    });
 }
 
 export async function updateGroupName(groupId) {
     toggleChatSettings();
-    const newName = prompt("Nhập tên mới cho nhóm:");
-    if (!newName) return;
-    try {
-        const res = await apiFetch(`/chat/settings/update`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: window.currentUser.userId,
-                target_id: groupId,
-                field: 'name',
-                value: newName,
-                is_group: true
-            })
-        });
-        if (res && res.ok) {
-            document.getElementById('chatHeaderName').innerText = newName;
-            showToast("Đã đổi tên nhóm!");
+    showInputModal("Đổi tên nhóm", "Nhập tên mới cho nhóm...", "", async (newName) => {
+        try {
+            const res = await apiFetch(`/chat/settings/update`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: window.currentUser.userId,
+                    target_id: groupId,
+                    field: 'name',
+                    value: newName,
+                    is_group: true
+                })
+            });
+            if (res && res.ok) {
+                document.getElementById('chatHeaderName').innerText = newName;
+                showToast("Đã đổi tên nhóm!");
+            }
+        } catch (e) { showToast("Lỗi kết nối", "error"); }
+    });
+}
+
+// Helper: Custom Input Modal
+function showInputModal(title, placeholder, currentValue, onConfirm) {
+    const existing = document.getElementById('chatInputModal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'chatInputModal';
+    modal.className = 'fixed inset-0 z-[100] flex items-center justify-center bg-black/50 animate-fade-in';
+    modal.innerHTML = `
+        <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-80 animate-scale-in border dark:border-slate-700">
+            <h3 class="text-sm font-bold uppercase text-slate-500 mb-3">${title}</h3>
+            <div class="relative">
+                <input type="text" id="chatInputModalValue" value="${currentValue || ''}" placeholder="${placeholder}" 
+                       class="w-full p-3 bg-slate-100 dark:bg-slate-900 border-none rounded-xl mb-4 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white font-medium">
+            </div>
+            <div class="flex justify-end gap-2">
+                <button id="chatInputModalCancel" class="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition">Hủy</button>
+                <button id="chatInputModalConfirm" class="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md transition">Lưu</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    const input = document.getElementById('chatInputModalValue');
+    input.focus();
+    input.select();
+
+    const close = () => {
+        modal.classList.add('opacity-0');
+        setTimeout(() => modal.remove(), 200);
+    };
+
+    document.getElementById('chatInputModalCancel').onclick = close;
+    document.getElementById('chatInputModalConfirm').onclick = () => {
+        const val = input.value.trim();
+        if (val) {
+            onConfirm(val);
+            close();
         }
-    } catch (e) { showToast("Lỗi kết nối", "error"); }
+    };
+
+    input.onkeyup = (e) => {
+        if (e.key === 'Enter') document.getElementById('chatInputModalConfirm').click();
+    };
+
+    modal.onclick = (e) => {
+        if (e.target === modal) close();
+    }
 }
 
 export async function deleteChatConfirm(targetId) {
@@ -980,27 +1075,53 @@ export function cancelReply() {
 /**
  * @desc Hiển thị Modal chọn cảm xúc (Reaction)
  */
-export function showReactions(messageId) {
+/**
+ * @desc Hiển thị Modal chọn cảm xúc (Reaction)
+ */
+export function showReactions(messageId, event, currentReaction) {
+    // Remove existing popups
+    document.querySelectorAll('.reaction-picker-popup').forEach(el => el.remove());
+
     const emojis = ['❤️', '👍', '😂', '😮', '😢', '🔥'];
-    const html = `
-        <div class="flex gap-4 p-6 text-3xl justify-center items-center">
-            ${emojis.map(e => `
-                <span onclick="window.ChatModule.sendReaction('${messageId}', '${e}')" 
-                      class="cursor-pointer hover:scale-150 transition-transform duration-200 active:scale-90">
-                    ${e}
-                </span>
-            `).join('')}
-        </div>
-    `;
-    openModal('Thả cảm xúc', html);
+    const picker = document.createElement('div');
+    picker.className = 'reaction-picker-popup absolute z-50 bg-white dark:bg-slate-800 shadow-xl border dark:border-slate-700 rounded-full flex gap-2 p-2 animate-scale-in';
+    picker.innerHTML = emojis.map(e => `
+        <span onclick="window.ChatModule.sendReaction('${messageId}', '${e}', this)" 
+              class="cursor-pointer hover:scale-125 transition-transform text-xl w-8 h-8 flex items-center justify-center rounded-full ${e === currentReaction ? 'bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500' : ''}">
+            ${e}
+        </span>
+    `).join('');
+
+    // Positioning
+    const btn = event.currentTarget || event.target;
+    const rect = btn.getBoundingClientRect();
+
+    // Append to body to avoid overflow issues
+    document.body.appendChild(picker);
+
+    // Position above the button
+    const top = rect.top - 60 + window.scrollY;
+    const left = rect.left + (rect.width / 2) - 100; // Centered roughly
+
+    picker.style.top = `${top}px`;
+    picker.style.left = `${Math.max(10, left)}px`; // Prevent going off-screen left
+
+    // Click outside to close
+    const closeHandler = (e) => {
+        if (!picker.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+            picker.remove();
+            document.removeEventListener('click', closeHandler);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler), 10);
 }
 
 /**
  * @desc Gửi cảm xúc lên server và thông báo qua Socket
  */
-export async function sendReaction(messageId, emoji) {
+export async function sendReaction(messageId, emoji, el) {
     try {
-        const res = await fetch(`${API_URL}/chat/react`, {
+        const res = await apiFetch(`/chat/react`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1019,10 +1140,26 @@ export async function sendReaction(messageId, emoji) {
                 reactions: data.reactions,
                 isGroup: window.isCurrentChatGroup
             });
-            closeModal();
+            // Close picker
+            document.querySelectorAll('.reaction-picker-popup').forEach(p => p.remove());
         }
     } catch (e) {
         showToast("Lỗi thả cảm xúc", "error");
+    }
+}
+
+/**
+ * @desc Cuộn tới tin nhắn
+ */
+export function scrollToMessage(messageId) {
+    const el = document.getElementById(`message-${messageId}`);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Highlight effect
+        el.querySelector('.relative')?.classList.add('ring-2', 'ring-blue-400');
+        setTimeout(() => el.querySelector('.relative')?.classList.remove('ring-2', 'ring-blue-400'), 2000);
+    } else {
+        showToast("Tin nhắn gốc không có trong danh sách hiện tại.", "info");
     }
 }
 
@@ -1255,7 +1392,51 @@ function scrollToPost(postId) {
     }
 }
 
+/* =======================
+   XỬ LÝ UPLOAD AVATAR NHÓM CHAT
+   ======================= */
+export async function handleChatAvatarUpload(event) {
+    const file = event.target.files[0];
+    if (!file || !currentChatTarget) return;
+
+    const formData = new FormData();
+    formData.append('type', 'group_chat');
+    formData.append('user_id', window.currentUser.userId);
+    formData.append('avatar', file);
+
+    try {
+        const res = await fetch(`${window.API_URL}/chat/group/${currentChatTarget}/avatar`, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            showToast('Đổi ảnh nhóm thành công!', 'success');
+            // Cập nhật ngay ID avatar trên giao diện nếu có thể
+            const avatarEl = document.getElementById('chatHeaderAvatar');
+            if (avatarEl && data.avatarUrl) avatarEl.src = `${window.IO_URL}/${data.avatarUrl}`;
+
+            // Reload lại chat settings để sync
+            loadChatHistory(currentChatTarget, true);
+            // [FIX] Cập nhật lại danh sách bên trái
+            renderChatList();
+        } else {
+            showToast(data.message || 'Lỗi upload ảnh.', 'error');
+        }
+    } catch (e) {
+        showToast('Lỗi kết nối server.', 'error');
+        console.error(e);
+    } finally {
+        event.target.value = '';
+    }
+}
+
 window.ChatModule = {
+    handleChatAvatarUpload, // [NEW] Export
     switchChatTab, openChat, displayMessage, sendMessage, markChatAsReadAPI, handleBlock,
     showCreateGroupModal, submitCreateGroup, toggleSelectMember,
     toggleChatSettings, updateAlias, updateGroupName, deleteChatConfirm,
@@ -1264,7 +1445,7 @@ window.ChatModule = {
     previewImage, clearImage, setReply, cancelReply, showReactions, sendReaction,
     handleChatSidebarSearch, toggleRecentExpansion, toggleHistoryExpansion,
     deleteHistoryItemChat, clearHistoryChat, openFromHistory, toggleChatSearch,
-    updateOnlineStatus
+    updateOnlineStatus, scrollToMessage
 };
 
 document.addEventListener('DOMContentLoaded', initSocketListeners);

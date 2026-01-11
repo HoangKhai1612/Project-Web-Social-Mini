@@ -32,7 +32,9 @@ router.get('/admin/settings/system', adminController.getSystemSettings); // [NEW
 router.post('/admin/settings/system', adminController.updateSystemSetting); // [NEW]
 router.get('/admin/admins', adminController.getAdmins);
 router.post('/admin/admins', adminController.createAdmin);
-router.put('/admin/admins/:id/role', adminController.updateAdminRole);
+router.post('/admin/verify-credentials', adminController.verifyCredentials); // [NEW] Verify before update
+router.put('/admin/admins/profile', adminController.updateAdminProfile); // [NEW] Update Self
+router.put('/admin/admins/:id/role', adminController.updateAdminRole); // Update Others (Role Only)
 router.delete('/admin/admins/:id', adminController.deleteAdmin);
 
 

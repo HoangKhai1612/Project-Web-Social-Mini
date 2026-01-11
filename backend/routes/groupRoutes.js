@@ -27,6 +27,11 @@ router.post('/membership', groupController.manageMembership);
 // Kiểm tra trạng thái thành viên (GET /api/groups/:groupId/check-member)
 router.get('/:groupId/check-member', groupController.checkMemberStatus);
 
+// Upload Avatar Group (POST /api/groups/:groupId/avatar)
+// Yêu cầu middleware upload để xử lý file
+const upload = require('../middleware/uploadMiddleware');
+router.post('/:groupId/avatar', upload.single('avatar'), groupController.uploadGroupAvatar);
+
 
 /**
  * ============================================
@@ -40,11 +45,17 @@ router.put('/members/manage', groupController.manageGroupMembers);
 // Admin: Thăng/Giáng cấp Admin/Member (PUT /api/groups/members/manage-role)
 router.put('/members/manage-role', groupController.manageMemberRole);
 
+// Transfer Admin Role (PUT /api/groups/members/transfer-admin)
+router.put('/members/transfer-admin', groupController.transferAdminRole);
+
 // Admin: Lấy danh sách yêu cầu chờ duyệt (GET /api/groups/:groupId/pending)
 router.get('/:groupId/pending', groupController.getGroupJoinRequests);
 
 // Admin: Lấy danh sách thành viên được duyệt (GET /api/groups/:groupId/members)
 router.get('/:groupId/members', groupController.getGroupMembers);
+
+// Update Settings (Rename) (PUT /api/groups/:groupId/settings)
+router.put('/:groupId/settings', groupController.updateGroupSettings);
 
 
 /**

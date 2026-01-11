@@ -21,6 +21,9 @@ router.post('/delete', chatController.deleteChat);
 // Tạo nhóm chat (Tối thiểu 3 người)
 router.post('/group', chatController.createGroupChat);
 
+// Upload Avatar Group Chat (POST /api/chat/group/:groupId/avatar)
+router.post('/group/:groupId/avatar', upload.single('avatar'), chatController.uploadGroupChatAvatar);
+
 // Lấy thành viên nhóm
 router.get('/group/:groupId/members', chatController.getGroupMembers);
 

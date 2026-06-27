@@ -13,8 +13,13 @@ export function handleNotificationClick(type, targetId) {
         case 'like':
         case 'comment':
         case 'new_post_friend':
-            // Chuyển hướng đến Profile người đăng để xem bài viết hoặc chi tiết bài viết
-            window.switchView('profile', targetId);
+            // [MODIFIED] Chuyển hướng thông minh vào bài viết
+            if (window.NewsfeedModule && window.NewsfeedModule.navigateToPost) {
+                window.NewsfeedModule.navigateToPost(targetId);
+            } else {
+                console.warn("NewsfeedModule or navigateToPost missing");
+                window.switchView('profile', targetId); // Fallback
+            }
             break;
 
         // --- SỰ KIỆN KẾT BẠN ---

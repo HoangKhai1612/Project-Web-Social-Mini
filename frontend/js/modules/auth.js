@@ -1,10 +1,10 @@
 import {
-    API_URL,
     renderApp,
     renderCurrentView,
     showToast,
     setupSocketHandlers,
-    defaultConfig
+    defaultConfig,
+    API_URL
 } from '../main.js';
 
 // ========================

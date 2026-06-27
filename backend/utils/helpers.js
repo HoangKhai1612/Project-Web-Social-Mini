@@ -24,12 +24,12 @@ async function isAdminOfGroup(userId, groupId) {
         );
         if (creatorResult.length > 0) return true; // Là Creator
 
-        // 2. Kiểm tra User có phải là Admin được duyệt hay không
+        // 2. Kiểm tra User có phải là Admin/Super Admin được duyệt hay không
         const [adminResult] = await db.promise().query(
-            'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? AND status = "approved" AND role = "admin"',
+            "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? AND status = 'approved' AND role IN ('admin', 'super_admin')",
             [groupId, userId]
         );
-        if (adminResult.length > 0) return true; // Là Admin
+        if (adminResult.length > 0) return true; // Là Admin hoặc Super Admin
 
         return false;
     } catch (error) {
@@ -39,10 +39,7 @@ async function isAdminOfGroup(userId, groupId) {
 }
 
 
-// ============================================
 // 2. NOTIFICATION HELPERS
-// ============================================
-
 /**
  * @desc Tạo và lưu thông báo vào DB, sau đó gửi qua Socket.IO.
  * @param {Object} io - Instance của Socket.IO
@@ -62,12 +59,12 @@ async function createNotification(io, receiverId, senderId, type, content, targe
     `;
     try {
         await db.promise().query(sql, [receiverId, senderId, type, content, targetId]);
-        
+
         // Gửi thông báo qua Socket.IO
         io.to(receiverId).emit('new_notification', {
             senderId: senderId,
             type: type,
-            content: content, 
+            content: content,
             targetId: targetId
         });
 
@@ -76,11 +73,7 @@ async function createNotification(io, receiverId, senderId, type, content, targe
     }
 }
 
-
-// ============================================
 // 3. COMMENT HELPERS
-// ============================================
-
 /**
  * @desc Xây dựng cấu trúc cây comments (comments và replies).
  * @param {Array<Object>} list - Danh sách comments phẳng từ DB
@@ -92,7 +85,7 @@ function buildCommentTree(list, parentId) {
 
     list.forEach(item => {
         // Chuyển đổi null/undefined thành 0 để so sánh dễ dàng hơn với comments gốc
-        const currentParentId = item.parent_id || 0; 
+        const currentParentId = item.parent_id || 0;
         const targetParentId = parentId || 0;
 
         if (currentParentId === targetParentId) {
@@ -107,11 +100,7 @@ function buildCommentTree(list, parentId) {
     return tree;
 }
 
-
-// ============================================
 // EXPORTS
-// ============================================
-
 module.exports = {
     isAdminOfGroup,
     createNotification,

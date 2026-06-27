@@ -241,3 +241,4 @@ exports.forgotPassword = async (req, res) => {
         res.status(500).json({ success: false, message: 'Lỗi server khi khôi phục mật khẩu.' });
     }
 };
+module.exports = exports;

@@ -59,9 +59,7 @@ function getAvatar(path, gender) {
 }
 
 
-// ============================================
 // MAIN APP & ROUTING
-// ============================================
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Verify Admin & Load User Info
     const token = localStorage.getItem('token');
@@ -141,9 +139,7 @@ window.switchModule = async function (moduleName) {
     }
 };
 
-// ============================================
 // MODULE 4: CONTENT
-// ============================================
 function renderContentTemplate(container) {
     const tpl = document.getElementById('tpl-content').content.cloneNode(true);
     container.innerHTML = '';
@@ -200,9 +196,7 @@ window.AdminModule.deletePost = async function (postId) {
     }
 }
 
-// ============================================
 // MODULE 5: SETTINGS
-// ============================================
 function renderSettingsTemplate(container) {
     const tpl = document.getElementById('tpl-settings').content.cloneNode(true);
     container.innerHTML = '';
@@ -214,9 +208,7 @@ function renderSettingsTemplate(container) {
     if (typeof loadSystemLogs === 'function') loadSystemLogs();
 }
 
-// ============================================
 // MODULE 1: OVERVIEW
-// ============================================
 async function renderOverview(container) {
     const tpl = document.getElementById('tpl-overview').content.cloneNode(true);
     container.innerHTML = '';
@@ -273,9 +265,7 @@ async function renderOverview(container) {
     }
 }
 
-// ============================================
 // ADMIN MANAGEMENT (In Settings)
-// ============================================
 window.AdminModule.loadSettings = async function () {
     // 1. Load Logs
     const logContainer = document.getElementById('audit-logs-container');
@@ -525,27 +515,10 @@ window.AdminModule.editMyProfile = function () {
     window.AdminModule.editAdmin(adminId, u.username, adminName, u.role);
 }
 
+
 // Global variable to track editing
 let currentEditId = null;
 let tempVerifiedCredentials = null; // Store { current_username, current_password } after verification
-
-window.AdminModule.editAdmin = function (id, username, fullName, role) {
-    currentEditId = id;
-    const myId = currentUser.userId || currentUser.id;
-    const isSelf = String(id) === String(myId);
-    tempVerifiedCredentials = null; // Reset
-
-    // Remove old modal
-    document.getElementById('editAdminModal')?.remove();
-
-    if (isSelf) {
-        // Stage 1: Verification Form
-        renderVerificationModal(username); // Pass current username to prefill if reasonable, or leave blank? User said "nhập đúng tên". Let's leave blank or prefill? Usually prefill username is fine.
-    } else {
-        // Edit Role Form (Standard)
-        renderRoleEditModal(id, username, fullName, role);
-    }
-}
 
 // Helper: Stage 1 Modal
 function renderVerificationModal(currentUsername) {
@@ -667,46 +640,6 @@ function renderUpdateProfileModal(id) {
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
-function renderRoleEditModal(id, username, fullName, role) {
-    const modalHtml = `
-    <div id="editAdminModal" class="fixed inset-0 z-[3000] flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="this.parentElement.remove()"></div>
-        <div class="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-scale-in">
-             <div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 border-b border-blue-500">
-                <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                    <span>⚖️</span> Phân quyền Admin
-                </h3>
-            </div>
-            
-            <div class="p-6 space-y-4">
-                <div class="mb-4">
-                    <p class="text-sm text-slate-500 mb-1">Đang sửa quyền hạn cho:</p>
-                    <p class="font-bold text-lg text-slate-800">${fullName} (@${username})</p>
-                </div>
-                <div>
-                     <label class="block text-sm font-bold text-slate-700 mb-2">Vai trò mới</label>
-                    <div class="flex flex-col gap-2">
-                        <label class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-slate-50 ${role === 'admin' ? 'bg-blue-50 border-blue-200' : ''}">
-                            <input type="radio" name="editRole" value="admin" ${role === 'admin' ? 'checked' : ''} class="w-4 h-4 text-blue-600">
-                            <span class="ml-3 font-medium">Admin (Thường)</span>
-                        </label>
-                        <label class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-slate-50 ${role === 'super_admin' ? 'bg-purple-50 border-purple-200' : ''}">
-                            <input type="radio" name="editRole" value="super_admin" ${role === 'super_admin' ? 'checked' : ''} class="w-4 h-4 text-purple-600">
-                            <span class="ml-3 font-medium text-purple-700">Super Admin</span>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="pt-4 flex gap-3">
-                    <button onclick="document.getElementById('editAdminModal').remove()" class="flex-1 py-2 bg-gray-100 text-slate-600 rounded-lg font-medium hover:bg-gray-200 transition">Hủy</button>
-                    <button onclick="window.AdminModule.submitEditAdmin(false)" class="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold shadow hover:bg-blue-700 transition">Lưu thay đổi</button>
-                </div>
-            </div>
-        </div>
-    </div>
-    `;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-}
 
 
 window.AdminModule.submitEditAdmin = async function (isSelf) {
@@ -790,16 +723,14 @@ window.AdminModule.submitEditAdmin = async function (isSelf) {
     }
 };
 
-// ============================================
 // MODULE 2: USERS
-// ============================================
 function renderUsersTemplate(container) {
     const tpl = document.getElementById('tpl-users').content.cloneNode(true);
     container.innerHTML = '';
     container.appendChild(tpl);
 }
 
-// window.AdminModule = {}; // [FIX] Removed reset
+// window.AdminModule = {}; 
 
 window.AdminModule.loadUsers = loadUsers; // bind global
 async function loadUsers(query = '') {
@@ -911,9 +842,7 @@ window.AdminModule.toggleLock = async function (userId, lock) {
     }
 };
 
-// ============================================
 // MODULE 3: REPORTS
-// ============================================
 function renderReportsTemplate(container) {
     const tpl = document.getElementById('tpl-reports').content.cloneNode(true);
     container.innerHTML = '';
@@ -1116,13 +1045,7 @@ window.AdminModule.submitEnforcement = async function (reportId, userId) {
     }
 };
 
-// ============================================
 // MODULE 5: SETTINGS
-// ============================================
-
-
-
-
 async function loadSettings() {
     const res = await authFetch('/admin/settings/system');
     if (!res) return;
@@ -1155,8 +1078,6 @@ async function toggleMaintenance(isChecked) {
     }
 }
 
-
-
 async function loadSystemLogs() {
     const res = await authFetch('/admin/logs');
     if (!res) return;
@@ -1176,12 +1097,50 @@ async function loadSystemLogs() {
     }
 }
 
+// [INTEGRATED FROM admin-edit.js]
+window.AdminModule.editAdmin = async function (id, username, fullName, currentRole) {
+    const myId = currentUser.userId || currentUser.id;
+    const isSelf = String(id) === String(myId);
 
-// Ensure all functions are exposed
+    if (isSelf) {
+        currentEditId = id;
+        tempVerifiedCredentials = null;
+        document.getElementById('editAdminModal')?.remove();
+        renderVerificationModal(username);
+        return;
+    }
+
+    // Role editing for others
+    if (!currentUser || currentUser.role !== 'super_admin') {
+        alert("Chỉ Super Admin mới có thể sửa thông tin Admin.");
+        return;
+    }
+
+    const newRole = confirm(`Thay đổi role cho ${username}?\n\nOK = Super Admin\nCancel = Admin thường`) ? 'super_admin' : 'admin';
+
+    if (newRole === currentRole) {
+        alert("Không có thay đổi nào.");
+        return;
+    }
+
+    const res = await authFetch(`/admin/admins/${id}/role`, {
+        method: 'PUT',
+        body: JSON.stringify({ role: newRole })
+    });
+
+    if (!res) return;
+    const data = await res.json();
+    if (data.success) {
+        alert("Đã cập nhật role thành công!");
+        loadAdmins();
+    } else {
+        alert("Lỗi: " + data.message);
+    }
+}
+
 window.AdminModule.loadSettings = loadSettings;
 window.AdminModule.toggleMaintenance = toggleMaintenance;
 window.AdminModule.loadAdmins = loadAdmins;
 window.AdminModule.loadSystemLogs = loadSystemLogs;
 
-// Debugging
 console.log("Admin Module Loaded. Methods:", window.AdminModule);

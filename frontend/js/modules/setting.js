@@ -146,59 +146,156 @@ export function renderSettings() {
 }
 
 /**
- * @desc Mở Modal xem danh sách bài viết (Yêu thích/Đã ẩn)
+ * @desc Mở Modal xem danh sách bài viết (Yêu thích/Đã ẩn/Kho lưu trữ)
  */
 export async function openActivityModal(type) {
-    const title = type === 'favorites' ? 'Bài viết yêu thích' : 'Bài viết đã ẩn';
-    const endpoint = type === 'favorites' ? 'favorites' : 'hidden';
+    const titles = {
+        'favorites': '💖 Bài viết yêu thích',
+        'hidden': '👁️ Bài viết đã ẩn',
+        'deleted': '🗑️ Kho lưu trữ'
+    };
 
-    openModal(title, `<div class="p-10 text-center animate-pulse text-slate-400 font-medium">Đang tải danh sách...</div>`);
+    const descriptions = {
+        'favorites': 'Những nội dung bạn đã lưu lại',
+        'hidden': 'Các bài viết bạn đã ẩn (còn 30 ngày để hủy ẩn)',
+        'deleted': 'Bài viết đã xóa (còn 30 ngày để khôi phục)'
+    };
+
+    const title = titles[type] || 'Quản lý bài viết';
+    const description = descriptions[type] || '';
+
+    // Render modal WITHOUT tabs
+    openModal(title, `
+        <div class="space-y-4">
+            ${description ? `<p class="text-sm text-gray-500 dark:text-gray-400 italic">${description}</p>` : ''}
+            
+            <!-- Content -->
+            <div id="activityContent" class="min-h-[200px]">
+                <div class="p-10 text-center animate-pulse text-slate-400 font-medium">Đang tải...</div>
+            </div>
+        </div>
+    `);
+
+    // Load data
+    loadActivityData(type);
+}
+
+async function loadActivityData(type) {
+    const container = document.getElementById('activityContent');
+    if (!container) return;
 
     try {
-        const res = await apiFetch(`/posts/${endpoint}?user_id=${window.currentUser.userId}`);
-        if (!res) return;
-        const posts = await res.json();
+        const res = await apiFetch(`/users/archive/${type}?user_id=${(window.currentUser.id || window.currentUser.userId)}`);
+        if (!res.ok) {
+            throw new Error(`API returned ${res.status}`);
+        }
 
-        const modalBody = document.getElementById('modalBody');
-        if (!posts || posts.length === 0) {
-            modalBody.innerHTML = `<div class="p-12 text-center text-slate-400 italic font-medium">Bạn chưa có bài viết nào trong mục này.</div>`;
+        const data = await res.json();
+        const posts = data.posts || [];
+
+        if (posts.length === 0) {
+            const emptyMessages = {
+                'favorites': 'Bạn chưa có bài viết yêu thích nào',
+                'hidden': 'Không có bài viết đã ẩn',
+                'deleted': 'Kho lưu trữ trống'
+            };
+            container.innerHTML = `
+                <div class="p-12 text-center text-slate-400 italic font-medium">
+                    ${emptyMessages[type]}
+                </div>
+            `;
             return;
         }
 
-        modalBody.innerHTML = `
+        container.innerHTML = `
             <div class="max-h-[60vh] overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-                ${posts.map(post => `
-                    <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-blue-500 hover:bg-white dark:hover:bg-slate-800 transition-all cursor-pointer group"
-                         onclick="window.SettingModule.goToPost('${post.user_id}', '${post.id}')">
-                        <div class="flex items-center gap-4">
-                            <div class="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-sm flex-shrink-0">
-                                <img src="${post.avatar ? (post.avatar.startsWith('http') ? post.avatar : API_URL.replace('/api', '') + '/' + post.avatar) : 'images/default.png'}" 
-                                     class="w-full h-full object-cover" onerror="this.src='images/default.png'">
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <div class="font-black text-sm text-slate-800 dark:text-slate-200">${post.full_name}</div>
-                                <div class="text-xs text-slate-500 truncate mt-0.5">${post.content || '[Hình ảnh / Video]'}</div>
-                            </div>
-                            <div class="text-[10px] text-slate-400 font-black uppercase group-hover:text-blue-500 group-hover:translate-x-1 transition">Xem ➔</div>
-                        </div>
-                    </div>
-                `).join('')}
+                ${posts.map(post => renderActivityItem(post, type)).join('')}
             </div>
         `;
     } catch (e) {
-        showToast("Lỗi khi tải dữ liệu hoạt động", "error");
+        console.error('Error loading activity data:', e);
+        container.innerHTML = `
+            <div class="p-8 text-center text-red-500">
+                ❌ Lỗi tải dữ liệu
+                <button onclick="window.SettingModule.openActivityModal('${type}')" 
+                    class="mt-3 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                    🔄 Thử lại
+                </button>
+            </div>
+        `;
     }
 }
 
-/**
- * @desc Điều hướng đến trang cá nhân và cuộn đến bài viết
- */
-export function goToPost(ownerId, postId) {
-    closeModal();
-    // Chuyển hướng tới trang cá nhân của người đăng
-    window.switchView('profile', ownerId);
+function renderActivityItem(post, type) {
+    const daysLeft = post.days_left || 0;
+    const isExpiring = daysLeft <= 7;
 
-    // Đợi 1 giây để trang profile load xong bài viết
+    let actionButtons = '';
+    if (type === 'favorites') {
+        actionButtons = `
+            <button onclick="event.stopPropagation(); window.SettingModule.unfavoritePost(${post.id})" 
+                class="text-xs px-3 py-1 bg-red-100 text-red-600 rounded-lg hover:bg-red-200">
+                💔 Hủy thích
+            </button>
+        `;
+    } else if (type === 'hidden') {
+        actionButtons = `
+            <div class="text-xs ${isExpiring ? 'text-orange-600 font-semibold' : 'text-gray-500'}">
+                ⏰ Còn ${daysLeft} ngày
+            </div>
+            <button onclick="event.stopPropagation(); window.SettingModule.unhidePost(${post.id})" 
+                class="text-xs px-3 py-1 bg-green-500 text-white rounded-lg hover:bg-green-600">
+                ✓ Hủy ẩn
+            </button>
+        `;
+    } else if (type === 'deleted') {
+        actionButtons = `
+            <div class="text-xs ${isExpiring ? 'text-red-600 font-bold' : 'text-orange-600'}">
+                ⚠️ Còn ${daysLeft} ngày
+            </div>
+            <button onclick="event.stopPropagation(); window.SettingModule.restorePost(${post.id})" 
+                class="text-xs px-3 py-1 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                ♻️ Khôi phục
+            </button>
+        `;
+    }
+
+    return `
+        <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-blue-500 hover:bg-white dark:hover:bg-slate-800 transition-all cursor-pointer group"
+             onclick="window.SettingModule.goToPost('${post.user_id}', '${post.id}', ${post.group_id || null})">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-sm flex-shrink-0">
+                    <img src="${post.avatar ? (post.avatar.startsWith('http') ? post.avatar : API_URL.replace('/api', '') + '/' + post.avatar) : 'images/default.png'}" 
+                         class="w-full h-full object-cover" onerror="this.src='images/default.png'">
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="font-black text-sm text-slate-800 dark:text-slate-200">
+                        ${post.full_name}${post.group_name ? ` → ${post.group_name}` : ''}
+                    </div>
+                    <div class="text-xs text-slate-500 truncate mt-0.5">${post.content || '[Hình ảnh / Video]'}</div>
+                </div>
+                <div class="flex items-center gap-2">
+                    ${actionButtons}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * @desc Điều hướng đến trang cá nhân/group và cuộn đến bài viết
+ */
+export function goToPost(ownerId, postId, groupId = null) {
+    closeModal();
+
+    // Chuyển hướng tới group hoặc profile
+    if (groupId) {
+        window.switchView('group', groupId);
+    } else {
+        window.switchView('profile', ownerId);
+    }
+
+    // Đợi 1 giây để trang load xong bài viết
     setTimeout(() => {
         const postElement = document.getElementById(`post-${postId}`);
         if (postElement) {
@@ -207,9 +304,75 @@ export function goToPost(ownerId, postId) {
             postElement.classList.add('ring-2', 'ring-blue-500', 'animate-pulse');
             setTimeout(() => postElement.classList.remove('ring-2', 'ring-blue-500', 'animate-pulse'), 2000);
         } else {
-            showToast("Không tìm thấy bài viết này trên trang cá nhân.", "info");
+            showToast("Không tìm thấy bài viết này.", "info");
         }
     }, 1000);
+}
+
+/**
+ * @desc Hủy yêu thích bài viết
+ */
+export async function unfavoritePost(postId) {
+    try {
+        const res = await apiFetch(`/users/archive/favorites/${postId}?user_id=${(window.currentUser.id || window.currentUser.userId)}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            // Reload modal
+            openActivityModal('favorites');
+        } else {
+            showToast(data.message, 'error');
+        }
+    } catch (err) {
+        console.error('Error unfavoriting:', err);
+        showToast('Lỗi hủy yêu thích', 'error');
+    }
+}
+
+/**
+ * @desc Hủy ẩn bài viết
+ */
+export async function unhidePost(postId) {
+    try {
+        const res = await apiFetch(`/users/archive/unhide/${postId}?user_id=${(window.currentUser.id || window.currentUser.userId)}`, {
+            method: 'POST'
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            // Reload modal
+            openActivityModal('hidden');
+        } else {
+            showToast(data.message, 'error');
+        }
+    } catch (err) {
+        console.error('Error unhiding:', err);
+        showToast('Lỗi hủy ẩn', 'error');
+    }
+}
+
+/**
+ * @desc Khôi phục bài viết đã xóa
+ */
+export async function restorePost(postId) {
+    try {
+        const res = await apiFetch(`/users/archive/restore/${postId}?user_id=${(window.currentUser.id || window.currentUser.userId)}`, {
+            method: 'POST'
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            // Reload modal
+            openActivityModal('deleted');
+        } else {
+            showToast(data.message, 'error');
+        }
+    } catch (err) {
+        console.error('Error restoring:', err);
+        showToast('Lỗi khôi phục', 'error');
+    }
 }
 
 // --- CÁC HÀM XỬ LÝ NAME ---
@@ -218,8 +381,8 @@ export function openChangeNameModal() {
     openModal('Cập nhật Họ và tên', `
         <div class="space-y-5 p-2">
             <div class="text-[11px] text-slate-500 px-1">Lưu ý: Tên hiển thị sẽ giúp bạn bè dễ nhận ra bạn hơn.</div>
-            <input type="text" id="newName" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Họ và tên mới" value="${window.currentUser.name}">
-            <input type="password" id="confirmPassForName" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Nhập mật khẩu để xác nhận">
+            <input type="text" id="newName" autocomplete="name" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Họ và tên mới" value="${window.currentUser.name}">
+            <input type="password" id="confirmPassForName" autocomplete="current-password" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Nhập mật khẩu để xác nhận">
             <button onclick="window.SettingModule.saveName()" class="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl active:scale-95 transition-all uppercase text-xs tracking-widest">Lưu thay đổi</button>
         </div>
     `);
@@ -236,7 +399,7 @@ export async function saveName() {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                user_id: window.currentUser.userId,
+                user_id: (window.currentUser.id || window.currentUser.userId),
                 new_name: newName,
                 password: password
             })
@@ -291,7 +454,7 @@ export async function savePrivacy() {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                user_id: window.currentUser.userId,
+                user_id: (window.currentUser.id || window.currentUser.userId),
                 setting_value: parseInt(val)
             })
         });
@@ -319,8 +482,8 @@ export function toggleDark() {
 export function openChangeEmailModal() {
     openModal('Cập nhật Email', `
         <div class="space-y-5 p-2">
-            <input type="email" id="newEmail" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Địa chỉ Email mới">
-            <input type="password" id="confirmPassForEmail" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Mật khẩu xác nhận">
+            <input type="email" id="newEmail" autocomplete="email" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Địa chỉ Email mới">
+            <input type="password" id="confirmPassForEmail" autocomplete="current-password" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Mật khẩu xác nhận">
             <button onclick="window.SettingModule.saveEmail()" class="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-xl active:scale-95 transition-all uppercase text-xs tracking-widest">Cập nhật ngay</button>
         </div>
     `);
@@ -335,7 +498,7 @@ export async function saveEmail() {
         const res = await apiFetch(`/users/update-email`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: window.currentUser.userId, new_email: newEmail, password: password })
+            body: JSON.stringify({ user_id: (window.currentUser.id || window.currentUser.userId), new_email: newEmail, password: password })
         });
         if (!res) return;
         const data = await res.json();
@@ -354,9 +517,9 @@ export async function saveEmail() {
 export function openChangePasswordModal() {
     openModal('Đổi mật khẩu', `
         <div class="space-y-4 p-2">
-            <input type="password" id="oldPass" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Mật khẩu cũ">
-            <input type="password" id="newPass" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Mật khẩu mới">
-            <input type="password" id="confirmPass" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Xác nhận mật khẩu mới">
+            <input type="password" id="oldPass" autocomplete="current-password" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Mật khẩu cũ">
+            <input type="password" id="newPass" autocomplete="new-password" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Mật khẩu mới">
+            <input type="password" id="confirmPass" autocomplete="new-password" class="w-full p-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl outline-none focus:border-blue-500" placeholder="Xác nhận mật khẩu mới">
             <button onclick="window.SettingModule.savePassword()" class="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg active:scale-95 transition-all uppercase text-xs tracking-widest">Đổi mật khẩu</button>
         </div>
     `);
@@ -372,7 +535,7 @@ export async function savePassword() {
         const res = await apiFetch(`/auth/password`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: window.currentUser.userId, old_password, new_password })
+            body: JSON.stringify({ user_id: (window.currentUser.id || window.currentUser.userId), old_password, new_password })
         });
         if (!res) return;
         const data = await res.json();
@@ -402,14 +565,14 @@ export async function toggleOnlineStatus() {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                user_id: window.currentUser.userId,
+                user_id: (window.currentUser.id || window.currentUser.userId),
                 user_info: JSON.stringify(userInfo)
             })
         });
         showToast(`Trạng thái hoạt động: ${isVisible ? 'Bật' : 'Tắt'}`);
 
         // Thông báo cho socket (re-register để server cập nhật preference)
-        io.emit('register_user', window.currentUser.userId);
+        io.emit('register_user', (window.currentUser.id || window.currentUser.userId));
 
     } catch (e) {
         showToast("Lỗi khi cập nhật trạng thái", "error");
@@ -420,5 +583,6 @@ export async function toggleOnlineStatus() {
 window.SettingModule = {
     renderSettings, toggleDark, openPrivacyModal, savePrivacy,
     openChangeEmailModal, saveEmail, openChangePasswordModal, savePassword,
-    openChangeNameModal, saveName, openActivityModal, goToPost, toggleOnlineStatus
+    openChangeNameModal, saveName, openActivityModal, goToPost, toggleOnlineStatus,
+    unfavoritePost, unhidePost, restorePost
 };

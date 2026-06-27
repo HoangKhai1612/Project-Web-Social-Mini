@@ -1,42 +1,37 @@
 const db = require('../config/database');
 
-// ============================================
-// LẤY TIN NHẮN & CÀI ĐẶT (MESSAGE HISTORY)
-// ============================================
-
-exports.getMessages = async (req, res) => {
+exports.getMessages = async (req, res) => {// LẤY TIN NHẮN va CÀI ĐẶT (MESSAGE HISTORY)
     const userId = req.query.user_id;
     const targetId = req.params.targetId;
-    const isGroupRequest = req.query.is_group === 'true';
+    const isGroupRequest = req.query.is_group === 'true';// Kiểm tra xem request có phải là nhóm không
 
     if (!userId || !targetId) {
         return res.status(400).json({ success: false, message: "Thiếu thông tin ID." });
     }
 
     try {
-        let messages = [];
-        let settings = {};
+        let messages = [];// Danh sách tin nhắn
+        let settings = {};// Cài đặt chat
 
-        if (isGroupRequest) {
-            // --- LOGIC CHAT NHÓM ---
+        if (isGroupRequest) { // Nếu là nhóm
             const [memberInfo] = await db.promise().query(
                 'SELECT role, alias FROM group_chat_members WHERE group_chat_id = ? AND user_id = ?',
                 [targetId, userId]
-            );
+            );// Lấy thông tin thành viên nhóm
 
-            if (memberInfo.length === 0) {
+            if (memberInfo.length === 0) {// Nếu không phải thành viên nhóm
                 return res.status(403).json({ success: false, message: "Bạn không phải thành viên nhóm này." });
             }
 
             const [groupSettings] = await db.promise().query(
                 'SELECT name as group_name, theme_url, avatar FROM group_chats WHERE id = ?',
                 [targetId]
-            );
+            );// Lấy thông tin nhóm
 
             settings = groupSettings[0] || {};
             settings.my_role = memberInfo[0].role;
 
-            // Lấy tin nhắn nhóm kèm nội dung reply (nếu có)
+            // Lấy tin nhắn nhóm kèm nội dung reply
             const sqlGroupMessages = `
                 SELECT m.*, u.full_name AS sender_name, u.avatar AS sender_avatar, u.gender AS sender_gender,
                        COALESCE(gcm.alias, u.full_name) AS display_name,
@@ -51,25 +46,24 @@ exports.getMessages = async (req, res) => {
             `;
             [messages] = await db.promise().query(sqlGroupMessages, [targetId]);
 
-        } else {
-            // --- LOGIC CHAT 1-1 ---
+        } else {// Nếu là chat 1-1
             await db.promise().query(
                 'UPDATE messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0',
                 [targetId, userId]
-            );
+            );// Cập nhật tin nhắn đã đọc
 
-            const [targetUser] = await db.promise().query('SELECT full_name FROM users WHERE id = ?', [targetId]);
+            const [targetUser] = await db.promise().query('SELECT full_name FROM users WHERE id = ?', [targetId]);// Lấy thông tin người dùng
             const targetFullName = targetUser[0]?.full_name || "Người dùng";
 
             const [chatSet] = await db.promise().query(
                 'SELECT alias, theme_url FROM chat_settings WHERE user_id = ? AND target_id = ?',
                 [userId, targetId]
-            );
+            );// Lấy thông tin cài đặt chat
 
-            settings = chatSet[0] || {};
+            settings = chatSet[0] || {};// Cài đặt chat
             settings.display_name = settings.alias || targetFullName;
 
-            // Kiểm tra chặn và bạn bè (giữ nguyên logic của bạn)
+            // Kiểm tra chặn và bạn bè
             try {
                 const [friendship] = await db.promise().query(
                     'SELECT status FROM friendships WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)',
@@ -104,8 +98,7 @@ exports.getMessages = async (req, res) => {
             ]);
         }
 
-        // Parse reactions từ chuỗi sang JSON cho Frontend dễ xử lý
-        messages = messages.map(msg => ({
+        messages = messages.map(msg => ({// Parse reactions từ chuỗi sang JSON cho Frontend dễ xử lý
             ...msg,
             reactions: msg.reactions ? JSON.parse(msg.reactions) : {}
         }));
@@ -118,10 +111,10 @@ exports.getMessages = async (req, res) => {
     }
 };
 
-// --- 1. HÀM UPLOAD MEDIA (ẢNH/VIDEO) ---
+//1. HÀM UPLOAD MEDIA (ẢNH/VIDEO)
 exports.uploadMedia = (req, res) => {
     try {
-        // 1. Kiểm tra nếu file không tồn tại
+        //1. Kiểm tra nếu file không tồn tại
         if (!req.file) {
             return res.status(400).json({
                 success: false,
@@ -129,28 +122,15 @@ exports.uploadMedia = (req, res) => {
             });
         }
 
-        /**
-         * 2. Xác định loại thư mục (type)
-         * Ưu tiên lấy từ query parameter (?type=message) để đảm bảo Multer đã xử lý đúng thư mục
-         */
-        const type = req.query.type || req.body.type || 'other';
+        const type = req.query.type || req.body.type || 'other';// Loại file
 
-        /**
-         * 3. Tạo đường dẫn tương đối (Relative Path)
-         * Đây là giá trị sẽ được lưu vào Database (ví dụ: uploads/messages/img-xxx.png)
-         * Việc lưu đường dẫn tương đối giúp hệ thống không bị "chết" link khi đổi tên miền.
-         */
-        const relativePath = `uploads/${type}s/${req.file.filename}`;
+        const relativePath = `uploads/${type}s/${req.file.filename}`;// Đường dẫn tương đối
 
-        /**
-         * 4. Tạo URL tuyệt đối (Full URL)
-         * Dùng để trả về cho Frontend hiển thị ảnh ngay lập tức.
-         */
         const protocol = req.protocol; // http hoặc https
         const host = req.get('host'); // ví dụ: localhost:3000
-        const fullUrl = `${protocol}://${host}/${relativePath}`;
+        const fullUrl = `${protocol}://${host}/${relativePath}`;// URL tuyệt đối
 
-        // 5. Phản hồi kết quả cho Frontend
+        //2. Phản hồi kết quả cho Frontend
         res.json({
             success: true,
             message: "Tải file lên thành công",
@@ -170,7 +150,7 @@ exports.uploadMedia = (req, res) => {
     }
 };
 
-// --- 2. HÀM THẢ CẢM XÚC (REACTIONS) ---
+//2. HÀM THẢ CẢM XÚC (REACTIONS)
 exports.toggleReaction = async (req, res) => {
     const { messageId, userId, emoji } = req.body;
 
@@ -189,9 +169,9 @@ exports.toggleReaction = async (req, res) => {
         // 1. Xóa user khỏi TẤT CẢ các emoji hiện tại (để đảm bảo chỉ có 1 reaction)
         let removed = false;
         for (const reactionType in reactions) {
-            const index = reactions[reactionType].indexOf(userId);
-            if (index > -1) {
-                reactions[reactionType].splice(index, 1);
+            const index = reactions[reactionType].indexOf(userId);// Tìm index của user trong emoji
+            if (index > -1) {// Nếu tìm thấy
+                reactions[reactionType].splice(index, 1);// Xóa user khỏi emoji
                 if (reactions[reactionType].length === 0) delete reactions[reactionType];
                 if (reactionType === emoji) removed = true; // Đánh dấu là đã xóa chính emoji này (toggle off)
             }
@@ -200,8 +180,8 @@ exports.toggleReaction = async (req, res) => {
         // 2. Nếu chưa xóa (tức là user chưa thả emoji này), thì thêm vào
         // (Nếu removed = true nghĩa là user đã thả emoji này rồi -> click lại -> xóa -> toggle off không thêm lại)
         if (!removed) {
-            if (!reactions[emoji]) reactions[emoji] = [];
-            reactions[emoji].push(userId);
+            if (!reactions[emoji]) reactions[emoji] = [];// Nếu emoji chưa tồn tại, tạo mới
+            reactions[emoji].push(userId);// Thêm user vào emoji
         }
 
         // Cập nhật lại vào Database
@@ -214,15 +194,10 @@ exports.toggleReaction = async (req, res) => {
     }
 };
 
-// --- 3. LƯU Ý KHI LƯU TIN NHẮN (Gợi ý cho hàm lưu tin nhắn chính) ---
-// Khi bạn thực hiện INSERT tin nhắn mới, hãy đảm bảo lưu thêm 2 trường:
+// Khi thực hiện INSERT tin nhắn mới phair đảm bảo lưu thêm 2 trường:
 // - reply_to_id: ID của tin nhắn đang được trả lời (nếu có)
 // - media_url: Đường dẫn ảnh/video nhận được từ hàm uploadMedia
-
-// ============================================
 // QUẢN LÝ CHẶN (BLOCK / UNBLOCK)
-// ============================================
-
 exports.toggleBlock = async (req, res) => {
     const { user_id, target_id, action } = req.body;
     try {
@@ -243,10 +218,7 @@ exports.toggleBlock = async (req, res) => {
     }
 };
 
-// ============================================
 // QUẢN LÝ CÀI ĐẶT (ALIAS, THEME, NAME)
-// ============================================
-
 exports.updateSettings = async (req, res) => {
     const { user_id, target_id, field, value, is_group, member_id } = req.body;
     const allowedFields = ['alias', 'theme_url', 'name'];
@@ -288,10 +260,7 @@ exports.updateSettings = async (req, res) => {
     }
 };
 
-// ============================================
 // QUẢN LÝ NHÓM (TẠO, THÊM, XÓA, RỜI)
-// ============================================
-
 exports.createGroupChat = async (req, res) => {
     const { creator_id, name, member_ids } = req.body;
     if (!creator_id || !name || !member_ids || member_ids.length < 2) {
@@ -317,24 +286,49 @@ exports.createGroupChat = async (req, res) => {
     }
 };
 
-exports.getFriendsNotInGroup = async (req, res) => {
-    const { user_id, group_id } = req.query;
+exports.getFriendsNotInGroup = async (req, res) => {// Lấy danh sách bạn bè chưa tham gia nhóm
+    let user_id = req.user?.id || req.query.user_id;// Lấy user_id từ token hoặc query
+    let { group_id } = req.query;// Lấy group_id từ query
+
+    // Chuyển sang số để tránh lỗi type-mismatch và đảm bảo an toàn
+    user_id = parseInt(user_id);
+    group_id = parseInt(group_id);
+
+    console.log(`[DEBUG] getFriendsNotInGroup: user_id=${user_id}, group_id=${group_id}`);
+
+    if (!user_id) {
+        return res.status(400).json({ success: false, message: "Thiếu thông tin người dùng." });
+    }
+
     try {
         const sql = `
-            SELECT u.id, u.full_name 
+            SELECT u.id, u.full_name, u.avatar, u.username,
+                   (CASE WHEN gcm.user_id IS NOT NULL THEN 1 ELSE 0 END) as is_member
             FROM users u
+            LEFT JOIN group_chat_members gcm ON gcm.user_id = u.id AND gcm.group_chat_id = ?
             WHERE u.id IN (
-                SELECT CASE WHEN user_id1 = ? THEN user_id2 ELSE user_id1 END
-                FROM friendships 
-                WHERE (user_id1 = ? OR user_id2 = ?) AND status = 'accepted'
-            )
-            AND u.id NOT IN (
-                SELECT user_id FROM group_chat_members WHERE group_chat_id = ?
+                SELECT CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END
+                FROM friendships
+                WHERE (sender_id = ? OR receiver_id = ?) 
+                AND status = 'accepted'
             )
         `;
-        const [friends] = await db.promise().query(sql, [user_id, user_id, user_id, group_id]);
-        res.json({ success: true, friends });
-    } catch (err) { res.status(500).json({ success: false }); }
+
+        const params = [group_id, user_id, user_id, user_id];
+        const [friends] = await db.promise().query(sql, params);
+
+        console.log(`[DEBUG] Friends Found in DB: ${friends.length}`);
+
+        const friendsMapped = friends.map(f => ({// Chuyển đổi avatar thành avatar_url
+            ...f,
+            avatar_url: f.avatar
+        }));
+
+        res.json({ success: true, friends: friendsMapped });
+    } catch (err) {
+        console.error("Error fetching friends not in group:", err);
+        res.status(500).json({ success: false, message: "Lỗi lấy danh sách bạn bè", error: err.message });
+    }
 };
 
 exports.addMembersToGroup = async (req, res) => {
@@ -389,7 +383,7 @@ exports.leaveOrRemoveMember = async (req, res) => {
 
 exports.uploadGroupChatAvatar = async (req, res) => {
     const groupId = req.params.groupId;
-    const userId = req.user.id; // [FIX] Use secure ID from token
+    const userId = req.user.id;
     const file = req.file;
 
     if (!groupId || !file) {
@@ -411,7 +405,7 @@ exports.uploadGroupChatAvatar = async (req, res) => {
         }
 
         // Lưu đường dẫn ảnh vào DB
-        const avatarUrl = `uploads/group_chats/${file.filename}`; // [FIX] Correct folder name
+        const avatarUrl = `uploads/group_chats/${file.filename}`;
         await db.promise().query('UPDATE group_chats SET avatar = ? WHERE id = ?', [avatarUrl, groupId]);
 
         res.json({ success: true, message: 'Cập nhật ảnh nhóm chat thành công.', avatarUrl: avatarUrl });
@@ -422,11 +416,7 @@ exports.uploadGroupChatAvatar = async (req, res) => {
     }
 };
 
-// ============================================
-// TIỆN ÍCH TIN NHẮN
-// ============================================
-
-exports.markChatAsRead = async (req, res) => {
+exports.markChatAsRead = async (req, res) => {// Đánh dấu tin nhắn đã đọc
     const { user_id, target_id } = req.body;
     try {
         await db.promise().query('UPDATE messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0', [target_id, user_id]);
@@ -434,7 +424,7 @@ exports.markChatAsRead = async (req, res) => {
     } catch (err) { res.status(500).json({ success: false }); }
 };
 
-exports.deleteChat = async (req, res) => {
+exports.deleteChat = async (req, res) => {// Xóa toàn bộ lịch sử tin nhắn
     const { user_id, target_id } = req.body;
     try {
         await db.promise().query(
@@ -444,9 +434,4 @@ exports.deleteChat = async (req, res) => {
         res.json({ success: true, message: 'Đã xóa toàn bộ lịch sử tin nhắn.' });
     } catch (err) { res.status(500).json({ success: false }); }
 };
-
-// ============================================
-// EXPORTS
-// ============================================
-
 module.exports = exports;

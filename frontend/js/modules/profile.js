@@ -46,6 +46,10 @@ export async function renderProfile(userId) {
         // Parse cấu hình hiển thị từ database (JSON user_info)
         const privacy = user.user_info ? (typeof user.user_info === 'string' ? JSON.parse(user.user_info) : user.user_info) : {};
 
+        console.log('[DEBUG] Profile Data:', user);
+        console.log('[DEBUG] Parsed Privacy Settings:', privacy);
+        console.log('[DEBUG] show_work:', privacy.show_work, 'work_place:', user.work_place);
+
         // 2. Fetch bài đăng (Luôn tải vì Privacy đã chuyển sang Settings)
         let postsData = [];
         const postsRes = await apiFetch(`/posts?user_id=${viewerId}&target_user_id=${userId}&target_type=profile`);
@@ -128,25 +132,39 @@ export async function renderProfile(userId) {
                                     <span class="text-3xl block mb-2">🔒</span>
                                     <p class="text-[11px] text-slate-400 italic">Thông tin đã được ẩn</p>
                                 </div>
-                            ` : `
-                                <ul class="space-y-5 text-slate-600 dark:text-slate-400 text-sm font-medium">
-                                    ${privacy.show_work !== false && user.work_place ? `<li class="flex items-center gap-3">💼 <span>Làm việc tại <b class="text-slate-800 dark:text-slate-200">${user.work_place}</b></span></li>` : ''}
-                                    ${privacy.show_school !== false && user.education ? `<li class="flex items-center gap-3">🎓 <span>Từng học tại <b class="text-slate-800 dark:text-slate-200">${user.education}</b></span></li>` : ''}
-                                    ${privacy.show_location !== false && user.location ? `<li class="flex items-center gap-3">📍 <span>Đến từ <b class="text-slate-800 dark:text-slate-200">${user.location}</b></span></li>` : ''}
-                                    ${privacy.show_birthday !== false && user.birthday ? `<li class="flex items-center gap-3">🎂 <span>Sinh nhật <b class="text-slate-800 dark:text-slate-200">${new Date(user.birthday).toLocaleDateString('vi-VN')}</b></span></li>` : ''}
-                                    ${user.gender ? `<li class="flex items-center gap-3">⚧ <span>Giới tính <b class="text-slate-800 dark:text-slate-200">${user.gender === 'Other' ? 'Khác' : (user.gender === 'Male' ? 'Nam' : 'Nữ')}</b></span></li>` : ''}
-                                    <li class="text-slate-400 dark:text-slate-600 italic flex items-center gap-3 pt-2 border-t dark:border-slate-800">📅 <span>Thành viên SocialVN</span></li>
-                                </ul>
-                            `}
+                            ` : (() => {
+                const items = [];
+                if (privacy.show_work !== false && user.work_place) {
+                    items.push(`<li class="flex items-center gap-3">💼 <span>Làm việc tại <b class="text-slate-800 dark:text-slate-200">${user.work_place}</b></span></li>`);
+                }
+                if (privacy.show_school !== false && user.education) {
+                    items.push(`<li class="flex items-center gap-3">🎓 <span>Từng học tại <b class="text-slate-800 dark:text-slate-200">${user.education}</b></span></li>`);
+                }
+                if (privacy.show_location !== false && user.location) {
+                    items.push(`<li class="flex items-center gap-3">📍 <span>Đến từ <b class="text-slate-800 dark:text-slate-200">${user.location}</b></span></li>`);
+                }
+                if (privacy.show_birthday !== false && user.birthday) {
+                    items.push(`<li class="flex items-center gap-3">🎂 <span>Sinh nhật <b class="text-slate-800 dark:text-slate-200">${new Date(user.birthday).toLocaleDateString('vi-VN')}</b></span></li>`);
+                }
+
+                if (items.length === 0) {
+                    return `<div class="py-10 text-center text-slate-400 italic text-[11px] border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-3xl">Người dùng này chưa chia sẻ thông tin giới thiệu.</div>`;
+                }
+
+                if (user.gender) {
+                    items.push(`<li class="flex items-center gap-3">⚧ <span>Giới tính <b class="text-slate-800 dark:text-slate-200">${user.gender === 'Other' ? 'Khác' : (user.gender === 'Male' ? 'Nam' : 'Nữ')}</b></span></li>`);
+                }
+                items.push(`<li class="text-slate-400 dark:text-slate-600 italic flex items-center gap-3 pt-2 border-t dark:border-slate-800">📅 <span>Thành viên SocialVN</span></li>`);
+
+                return `<ul class="space-y-5 text-slate-600 dark:text-slate-400 text-sm font-medium">${items.join('')}</ul>`;
+            })()}
                         </div>
                     </div>
 
                     <div class="md:col-span-2 space-y-6">
                         <h3 class="font-black text-sm uppercase tracking-[0.2em] text-slate-800 dark:text-white px-2">Dòng thời gian</h3>
                         <div id="profilePostsContainer" class="space-y-6">
-                        <div id="profilePostsContainer" class="space-y-6">
                             ${postsData.length > 0 ? postsData.map(post => window.NewsfeedModule.renderPost(post)).join('') : renderEmptyPosts()}
-                        </div>
                         </div>
                     </div>
                 </div>
@@ -168,6 +186,16 @@ export async function showEditProfileModal() {
         const user = data.user;
         const privacy = user.user_info ? (typeof user.user_info === 'string' ? JSON.parse(user.user_info) : user.user_info) : {};
 
+        // [FIX] Fix birthday date shift (UTC vs Local)
+        let birthValue = '';
+        if (user.birthday) {
+            const d = new Date(user.birthday);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            birthValue = `${y}-${m}-${day}`;
+        }
+
         const content = `
             <form id="editProfileForm" class="space-y-6">
                 <div class="grid grid-cols-1 gap-5">
@@ -186,7 +214,7 @@ export async function showEditProfileModal() {
                             <option value="Female" ${user.gender === 'Female' ? 'selected' : ''}>Nữ</option>
                             <option value="Other" ${user.gender === 'Other' || !user.gender ? 'selected' : ''}>Khác</option>
                         </select>
-                        <input type="date" name="birthday" value="${user.birthday ? user.birthday.substring(0, 10) : ''}" class="border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl p-3 focus:border-blue-500 outline-none">
+                        <input type="date" name="birthday" value="${birthValue}" class="border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-900 rounded-2xl p-3 focus:border-blue-500 outline-none">
                     </div>
                 </div>
 

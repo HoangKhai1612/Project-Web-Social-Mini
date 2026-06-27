@@ -9,8 +9,6 @@ router.post('/upload-media', upload.single('image'), chatController.uploadMedia)
 // 2. Thả cảm xúc tin nhắn (Bổ sung mới)
 router.post('/react', chatController.toggleReaction);
 
-// Lấy lịch sử tin nhắn (Dùng chung cho Bạn bè, Nhóm, Người lạ)
-router.get('/:targetId', chatController.getMessages);
 
 // Đánh dấu đã đọc
 router.post('/mark-read', chatController.markChatAsRead);
@@ -34,9 +32,15 @@ router.get('/friends-not-in-group', chatController.getFriendsNotInGroup);
 // Rời nhóm hoặc xóa thành viên (Logic giải tán nếu < 3 người)
 router.post('/group/remove', chatController.leaveOrRemoveMember);
 
+// Thêm thành viên vào nhóm (POST /api/chat/group/add-members)
+router.post('/group/add-members', chatController.addMembersToGroup);
+
 // Cập nhật cài đặt (Alias, Theme, đổi tên nhóm)
 router.post('/settings/update', chatController.updateSettings);
 
 router.post('/block', chatController.toggleBlock);
+
+// Lấy lịch sử tin nhắn (PARAMETERIZED ROUTE - LUÔN ĐỂ DƯỚI CÙNG)
+router.get('/:targetId', chatController.getMessages);
 
 module.exports = router;

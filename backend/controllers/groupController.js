@@ -1,5 +1,6 @@
 const db = require('../config/database');
-const { isAdminOfGroup, createNotification } = require('../utils/helpers');
+const { isAdminOfGroup } = require('../utils/permissionUtils');
+const { createNotification } = require('../utils/notificationUtils');
 // NOTE: NotificationController không cần require ở đây vì chúng ta gọi trực tiếp createNotification
 const getIo = (req) => req.app.get('io');
 
@@ -24,20 +25,87 @@ async function isCreatorOfGroup(userId, groupId) {
  */
 async function executeGroupDelete(groupId, res) {
     try {
-        // Lấy tên nhóm để thông báo (nếu cần)
         const [groupInfo] = await db.promise().query('SELECT name FROM groups WHERE id = ?', [groupId]);
         const groupName = groupInfo.length > 0 ? groupInfo[0].name : "Group";
 
-        // Xóa các bảng liên quan
-        await db.promise().query('DELETE FROM posts WHERE group_id = ?', [groupId]);
+        // 1. Get Post IDs
+        const [posts] = await db.promise().query('SELECT id FROM posts WHERE group_id = ?', [groupId]);
+        const postIds = posts.map(p => p.id); // Array of IDs
+
+        let reportIds = [];
+
+        // 2. Identify Reports to delete
+        // 2.1 Reports on Group
+        const [groupReports] = await db.promise().query("SELECT id FROM reports WHERE target_type = 'group' AND target_id = ?", [groupId]);
+        reportIds = reportIds.concat(groupReports.map(r => r.id));
+
+        if (postIds.length > 0) {
+            // 2.2 Reports on Posts
+            const [postReports] = await db.promise().query(
+                "SELECT id FROM reports WHERE (target_type = 'post' AND target_id IN (?)) OR (post_id IN (?))",
+                [postIds, postIds]
+            );
+            reportIds = reportIds.concat(postReports.map(r => r.id));
+
+            // 2.3 Reports on Comments
+            const [comments] = await db.promise().query('SELECT id FROM comments WHERE post_id IN (?)', [postIds]);
+            const commentIds = comments.map(c => c.id);
+
+            if (commentIds.length > 0) {
+                const [commentReports] = await db.promise().query(
+                    "SELECT id FROM reports WHERE target_type = 'comment' AND target_id IN (?)",
+                    [commentIds]
+                );
+                reportIds = reportIds.concat(commentReports.map(r => r.id));
+            }
+        }
+
+        // Deduplicate report IDs
+        reportIds = [...new Set(reportIds)];
+
+        // 3. Delete Violation History and Reports
+        if (reportIds.length > 0) {
+            await db.promise().query('DELETE FROM violation_history WHERE report_id IN (?)', [reportIds]);
+            await db.promise().query('DELETE FROM reports WHERE id IN (?)', [reportIds]);
+        }
+
+        // 4. Delete Post-related Data
+        if (postIds.length > 0) {
+            // Notifications
+            await db.promise().query(`
+                DELETE FROM notifications 
+                WHERE type IN ('new_post_friend', 'like', 'comment', 'reply_comment', 'share_post', 'report_post')
+                AND target_id IN (?)
+            `, [postIds]);
+
+            // Dependents
+            try { await db.promise().query('DELETE FROM post_reports WHERE post_id IN (?)', [postIds]); } catch (e) { } // Legacy support
+            await db.promise().query('DELETE FROM comments WHERE post_id IN (?)', [postIds]);
+            await db.promise().query('DELETE FROM reactions WHERE post_id IN (?)', [postIds]);
+            await db.promise().query('DELETE FROM favorite_posts WHERE post_id IN (?)', [postIds]);
+            await db.promise().query('DELETE FROM hidden_posts_by_users WHERE post_id IN (?)', [postIds]);
+
+            // Posts
+            await db.promise().query('DELETE FROM posts WHERE id IN (?)', [postIds]);
+        }
+
+        // 5. Cleanup Group Members
         await db.promise().query('DELETE FROM group_members WHERE group_id = ?', [groupId]);
+
+        // 6. Cleanup Group Notifications
+        await db.promise().query(`
+            DELETE FROM notifications 
+            WHERE target_id = ? 
+            AND type IN ('group_created', 'group_invite', 'group_join_request', 'group_approved', 'group_removed', 'group_role_change', 'group_creator_transfer')
+        `, [groupId]);
+
+        // 7. Delete Group
         const [result] = await db.promise().query('DELETE FROM groups WHERE id = ?', [groupId]);
 
         if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Group không tồn tại.' });
 
-        // TODO: CẦN THÔNG BÁO CHO TẤT CẢ THÀNH VIÊN VỀ VIỆC NHÓM BỊ XÓA (NẾU CẦN)
-
         return res.json({ success: true, message: `Group "${groupName}" đã được xóa thành công.` });
+
     } catch (err) {
         console.error('Lỗi thực thi xóa Group:', err);
         return res.status(500).json({ success: false, message: 'Lỗi DB khi xóa Group.' });
@@ -47,10 +115,6 @@ async function executeGroupDelete(groupId, res) {
 
 // ... (imports)
 const upload = require('../middleware/uploadMiddleware'); // Import middleware upload
-
-// ... (existing helper functions)
-
-// ...
 
 // ============================================
 // CÁC HÀM CONTROLLER
@@ -154,10 +218,12 @@ async function getGroupDetail(req, res) {
             const member = memberStatus[0];
             if (member.status === 'approved') {
                 membershipStatus = member.role;
-
-                // Nếu là Creator VÀ đang là thành viên được duyệt, gán status 'creator'
-                if (String(group.creator_id) === String(viewerId)) {
-                    membershipStatus = 'creator';
+                // [NOTE] Creator is now 'super_admin' in DB, so we generally use member.role.
+                // Keeping 'creator' status only if explicitly needed by frontend unrelated to role logic, 
+                // but for role-based logic, 'super_admin' is key.
+                if (member.role === 'super_admin' && String(group.creator_id) === String(viewerId)) {
+                    // Frontend might expect 'creator' or we update frontend to check role === 'super_admin'
+                    // For now, let's trust the role.
                 }
             } else if (member.status === 'pending') {
                 membershipStatus = 'pending';
@@ -177,9 +243,9 @@ async function deleteGroup(req, res) {
     if (!admin_id) return res.status(400).json({ success: false, message: 'Missing Admin ID.' });
 
     try {
-        // Lấy thông tin group và người được ủy quyền
+        // Lấy thông tin group
         const [groupResult] = await db.promise().query(
-            'SELECT creator_id, delete_delegate_id FROM groups WHERE id = ?',
+            'SELECT creator_id FROM groups WHERE id = ?',
             [groupId]
         );
         if (groupResult.length === 0) {
@@ -187,12 +253,19 @@ async function deleteGroup(req, res) {
         }
         const group = groupResult[0];
 
-        // KIỂM TRA QUYỀN XÓA (Creator HOẶC Người được ủy quyền xóa)
-        const isAllowedToDelete = String(admin_id) === String(group.creator_id) ||
-            String(admin_id) === String(group.delete_delegate_id);
+        // KIỂM TRA QUYỀN XÓA (Phải là Super Admin)
+        const [memberCk] = await db.promise().query(
+            'SELECT role FROM group_members WHERE group_id = ? AND user_id = ? AND status = "approved"',
+            [groupId, admin_id]
+        );
 
-        if (!isAllowedToDelete) {
-            return res.status(403).json({ success: false, message: 'Chỉ người tạo Page/Group hoặc người được ủy quyền mới có quyền xóa.' });
+        const isSuperAdmin = memberCk.length > 0 && memberCk[0].role === 'super_admin';
+
+        // Fallback: Check creator_id if role check fails (legacy support)
+        const isCreator = String(admin_id) === String(group.creator_id);
+
+        if (!isSuperAdmin && !isCreator) {
+            return res.status(403).json({ success: false, message: 'Chỉ Super Admin mới có quyền xóa nhóm.' });
         }
 
         // Thực thi xóa nhóm
@@ -206,7 +279,7 @@ async function deleteGroup(req, res) {
 }
 
 async function createGroup(req, res) {
-    const { name, description, creator_id } = req.body;
+    const { name, description, creator_id, members } = req.body;
     const io = getIo(req);
 
     if (!name || !creator_id) {
@@ -218,13 +291,30 @@ async function createGroup(req, res) {
         const [groupResult] = await db.promise().query(groupSql, [name, description, creator_id]);
         const groupId = groupResult.insertId;
 
-        const memberSql = 'INSERT INTO group_members (group_id, user_id, role, status) VALUES (?, ?, "admin", "approved")';
+        // Add Creator as Super Admin (Owner)
+        const memberSql = 'INSERT INTO group_members (group_id, user_id, role, status) VALUES (?, ?, "super_admin", "approved")';
         await db.promise().query(memberSql, [groupId, creator_id]);
 
-        // [TÍCH HỢP THÔNG BÁO] Thông báo cho Creator (thông báo cá nhân)
+        // Add Selected Members (if any)
+        if (members && Array.isArray(members) && members.length > 0) {
+            const memberValues = members.map(uid => [groupId, uid, 'member', 'approved']);
+            const placeholders = memberValues.map(() => '(?, ?, ?, ?)').join(',');
+            await db.promise().query(
+                `INSERT IGNORE INTO group_members (group_id, user_id, role, status) VALUES ${placeholders}`,
+                memberValues.flat()
+            );
+
+            // Notify added members
+            members.forEach(uid => {
+                createNotification(io, uid, creator_id, 'group_invite', `Bạn đã được thêm vào nhóm: "${name}".`, groupId);
+            });
+        }
+
+        // [TÍCH HỢP THÔNG BÁO] Thông báo cho Creator
         createNotification(io, creator_id, creator_id, 'group_created', `Bạn đã tạo Group/Page: "${name}" thành công.`, groupId);
 
         res.status(201).json({ success: true, message: 'Đã tạo nhóm/page thành công.', groupId });
+
     } catch (err) {
         console.error('Lỗi DB khi tạo nhóm:', err);
         res.status(500).json({ success: false, message: 'Lỗi server khi tạo nhóm.' });
@@ -250,7 +340,6 @@ async function getGroups(req, res) {
 }
 
 async function searchGroups(req, res) {
-    // ... (Giữ nguyên logic)
     const query = req.query.q;
     if (!query) return res.status(400).json({ success: false, message: 'Vui lòng nhập từ khóa tìm kiếm.' });
 
@@ -405,12 +494,35 @@ async function manageGroupMembers(req, res) {
 
             res.json({ success: true, message: 'Đã duyệt thành viên thành công.' });
         } else if (action === 'reject' || action === 'remove') {
+            // Get requester role
+            const [requesterRoleRes] = await db.promise().query(
+                'SELECT role FROM group_members WHERE group_id = ? AND user_id = ?',
+                [group_id, admin_id]
+            );
+            const requesterRole = requesterRoleRes.length > 0 ? requesterRoleRes[0].role : null;
+
+            // Get target role
             const [targetRoleResult] = await db.promise().query(
                 'SELECT role FROM group_members WHERE group_id = ? AND user_id = ?',
                 [group_id, user_id_to_manage]
             );
-            if (targetRoleResult.length > 0 && targetRoleResult[0].role === 'admin' && !(await isCreatorOfGroup(admin_id, group_id))) {
-                return res.status(403).json({ success: false, message: 'Chỉ Creator mới có thể xóa Admin khác.' });
+            const targetRole = targetRoleResult.length > 0 ? targetRoleResult[0].role : 'member';
+
+            // Hierarchical Check
+            if (requesterRole !== 'super_admin') {
+                if (requesterRole === 'admin') {
+                    if (targetRole === 'admin' || targetRole === 'super_admin') {
+                        return res.status(403).json({ success: false, message: 'Admin không thể xóa Admin khác hoặc Super Admin.' });
+                    }
+                } else {
+                    // Member trying to remove? (Should be blocked by isAdminOfGroup check earlier, but safe to add)
+                    return res.status(403).json({ success: false, message: 'Bạn không có quyền xóa thành viên.' });
+                }
+            } else {
+                // Super Admin can remove anyone except themselves (logic usually prevents self-removal here)
+                if (String(admin_id) === String(user_id_to_manage)) {
+                    return res.status(400).json({ success: false, message: 'Không thể tự xóa mình. Hãy rời nhóm thay vì xóa.' });
+                }
             }
 
             // [TÍCH HỢP THÔNG BÁO] Thông báo cho người dùng bị từ chối/xóa (Tùy chọn)
@@ -458,32 +570,67 @@ async function manageMemberRole(req, res) {
     const { admin_id, user_id_to_manage, group_id, action } = req.body;
     const io = getIo(req);
 
-    // Chỉ Creator mới có quyền
-    const isCreator = await isCreatorOfGroup(admin_id, group_id);
-    if (!isCreator) {
-        return res.status(403).json({ success: false, message: 'Chỉ Chủ Page mới có quyền quản lý vai trò cấp cao.' });
-    }
-
-    // Ngăn Creator tự giáng cấp/xóa mình
-    if (String(admin_id) === String(user_id_to_manage)) {
-        return res.status(400).json({ success: false, message: 'Bạn không thể tự giáng cấp/xóa mình.' });
-    }
-
     try {
-        const newRole = action === 'promote' ? 'admin' : 'member';
-        await db.promise().query(
-            'UPDATE group_members SET role = ? WHERE user_id = ? AND group_id = ? AND status = "approved"',
-            [newRole, user_id_to_manage, group_id]
+        // 1. Check Requester Role
+        const [requesterRes] = await db.promise().query(
+            'SELECT role FROM group_members WHERE group_id = ? AND user_id = ? AND status = "approved"',
+            [group_id, admin_id]
         );
+        if (requesterRes.length === 0) return res.status(403).json({ success: false, message: 'Bạn không phải thành viên nhóm.' });
+        const requesterRole = requesterRes[0].role;
 
-        // [TÍCH HỢP THÔNG BÁO] Thông báo cho người dùng bị thăng/giáng cấp
-        const message = action === 'promote' ? 'Bạn đã được thăng chức lên Admin.' : 'Bạn đã bị giáng chức xuống thành viên.';
-        createNotification(io, user_id_to_manage, admin_id, 'group_role_change', message, group_id);
+        // Only Super Admin can change roles (except maybe Admin promoting Member? User implied Admin has limited power).
+        // "Admin... không thể thay đỏi chức năng thành viên". So ONLY Super Admin.
+        if (requesterRole !== 'super_admin') {
+            return res.status(403).json({ success: false, message: 'Chỉ Super Admin mới có quyền thay đổi vai trò.' });
+        }
 
-        res.json({
-            success: true,
-            message: `Đã ${action === 'promote' ? 'thăng' : 'giáng'} cấp thành viên thành công.`
-        });
+        // 2. Check Target Role
+        const [targetRes] = await db.promise().query(
+            'SELECT role FROM group_members WHERE group_id = ? AND user_id = ? AND status = "approved"',
+            [group_id, user_id_to_manage]
+        );
+        if (targetRes.length === 0) return res.status(404).json({ success: false, message: 'Thành viên không tồn tại.' });
+        const targetRole = targetRes[0].role;
+
+        // 3. Logic by Action
+        if (action === 'promote') {
+            // Member -> Admin
+            if (targetRole !== 'member') return res.status(400).json({ success: false, message: 'Chỉ có thể thăng cấp Member lên Admin.' });
+
+            await db.promise().query('UPDATE group_members SET role = "admin" WHERE group_id = ? AND user_id = ?', [group_id, user_id_to_manage]);
+            createNotification(io, user_id_to_manage, admin_id, 'group_role_change', 'Bạn đã được thăng chức lên Admin.', group_id);
+            res.json({ success: true, message: 'Đã thăng cấp thành viên lên Admin.' });
+
+        } else if (action === 'demote') {
+            // Admin -> Member
+            if (targetRole !== 'admin') return res.status(400).json({ success: false, message: 'Chỉ có thể giáng cấp Admin xuống Member.' });
+
+            await db.promise().query('UPDATE group_members SET role = "member" WHERE group_id = ? AND user_id = ?', [group_id, user_id_to_manage]);
+            createNotification(io, user_id_to_manage, admin_id, 'group_role_change', 'Bạn đã bị giáng chức xuống Member.', group_id);
+            res.json({ success: true, message: 'Đã giáng cấp Admin xuống Member.' });
+
+        } else if (action === 'transfer_ownership') {
+            // Transfer Super Admin -> Target (must be Admin)
+            // Old Super Admin -> Member
+            if (targetRole !== 'admin') return res.status(400).json({ success: false, message: 'Người nhận quyền lực cao nhất phải là Admin trước.' });
+
+            // 1. Target -> Super Admin
+            await db.promise().query('UPDATE group_members SET role = "super_admin" WHERE group_id = ? AND user_id = ?', [group_id, user_id_to_manage]);
+
+            // 2. Requester -> Member
+            await db.promise().query('UPDATE group_members SET role = "member" WHERE group_id = ? AND user_id = ?', [group_id, admin_id]);
+
+            // 3. Update Creator ID in groups table (to reflect "Owner")
+            await db.promise().query('UPDATE groups SET creator_id = ? WHERE id = ?', [user_id_to_manage, group_id]);
+
+            createNotification(io, user_id_to_manage, admin_id, 'group_creator_transfer', 'Bạn đã được chuyển quyền sở hữu Nhóm (Super Admin).', group_id);
+            res.json({ success: true, message: 'Đã chuyển giao quyền lực cao nhất thành công.' });
+
+        } else {
+            res.status(400).json({ success: false, message: 'Hành động không hợp lệ.' });
+        }
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ success: false, message: 'Lỗi DB khi quản lý vai trò thành viên.' });
@@ -510,23 +657,21 @@ async function transferAdminRole(req, res) {
             return res.status(403).json({ success: false, message: 'Bạn không có quyền thực hiện chuyển giao quyền này.' });
         }
 
-        // 1. Thăng cấp người nhận (New Admin) lên Admin và chấp nhận membership
+        // 1. Thăng cấp người nhận (New Admin) lên Super Admin (Owner)
         await db.promise().query(
-            'UPDATE group_members SET role = "admin", status = "approved" WHERE group_id = ? AND user_id = ?',
+            'UPDATE group_members SET role = "super_admin", status = "approved" WHERE group_id = ? AND user_id = ?',
             [group_id, new_admin_id]
         );
 
-        let message = 'Đã chuyển giao vai trò Admin thành công và rời nhóm.';
+        let message = 'Đã chuyển giao vai trò Super Admin thành công và rời nhóm.';
 
-        // 2. Nếu người chuyển giao là Creator gốc, chuyển quyền Creator trong bảng 'groups'
-        if (isCreator) {
-            const [groupUpdateResult] = await db.promise().query(
-                'UPDATE groups SET creator_id = ? WHERE id = ? AND creator_id = ?',
-                [new_admin_id, group_id, old_admin_id]
-            );
-            if (groupUpdateResult.affectedRows > 0) {
-                message = 'Đã chuyển giao quyền Chủ Page thành công và rời nhóm.';
-            }
+        // 2. Chuyển quyền Creator trong bảng 'groups' (luôn thực hiện để đảm bảo tính nhất quán Owner)
+        const [groupUpdateResult] = await db.promise().query(
+            'UPDATE groups SET creator_id = ? WHERE id = ?',
+            [new_admin_id, group_id]
+        );
+        if (groupUpdateResult.affectedRows > 0) {
+            message = 'Đã chuyển giao quyền Chủ Page thành công và rời nhóm.';
         }
 
         // 3. Loại bỏ Creator cũ khỏi danh sách thành viên (hành động rời nhóm)

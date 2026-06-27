@@ -1,5 +1,7 @@
 const db = require('../config/database');
-const { isAdminOfGroup, createNotification, buildCommentTree } = require('../utils/helpers');
+const { isAdminOfGroup } = require('../utils/permissionUtils');
+const { createNotification } = require('../utils/notificationUtils');
+const { buildCommentTree } = require('../utils/dataUtils');
 const upload = require('../config/multerConfig'); // Đã giả định là multer single('media')
 const notificationController = require('./notificationController'); // REQUIRE CONTROLLER THÔNG BÁO MỚI
 const getIo = (req) => req.app.get('io');
@@ -58,6 +60,33 @@ exports.createPost = async (req, res) => {
     } catch (err) {
         console.error(err);
         return res.status(500).json({ success: false, message: 'Lỗi DB khi đăng bài.' });
+    }
+};
+
+/**
+ * @route GET /api/posts/:postId
+ * @desc Lấy chi tiết một bài đăng (Dùng cho Edit/View Modal)
+ */
+exports.getPostById = async (req, res) => {
+    const { postId } = req.params;
+    try {
+        const sql = `
+            SELECT p.*, g.name AS group_name, u.full_name, u.avatar 
+            FROM posts p
+            JOIN users u ON p.user_id = u.id
+            LEFT JOIN groups g ON p.group_id = g.id
+            WHERE p.id = ?
+        `;
+        const [posts] = await db.promise().query(sql, [postId]);
+
+        if (posts.length === 0) {
+            return res.status(404).json({ success: false, message: "Bài viết không tồn tại." });
+        }
+
+        res.json(posts[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Lỗi server." });
     }
 };
 
@@ -177,70 +206,33 @@ exports.deletePost = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Bạn không có quyền xóa bài đăng này.' });
         }
 
-        // [SOFT DELETE] Cập nhật thời gian xóa thay vì xóa dòng
-        await db.promise().query('UPDATE posts SET deleted_at = NOW() WHERE id = ?', [postId]);
+        // [MOVE TO ARCHIVE]
+        // 1. Lấy toàn bộ dữ liệu bài viết
+        const [postData] = await db.promise().query('SELECT * FROM posts WHERE id = ?', [postId]);
+        const p = postData[0];
+
+        // 3. Chèn vào bảng archived_posts (Dùng REPLACE để tránh lỗi Duplicate)
+        await db.promise().query(
+            `REPLACE INTO archived_posts (original_id, user_id, content, media_url, group_id, visibility, created_at, deleted_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [p.id, p.user_id, p.content, p.media_url, p.group_id, p.visibility, p.created_at, user_id]
+        );
+
+        // 4. Xóa dữ liệu liên quan (Manual Cascade)
+        await db.promise().query('DELETE FROM reactions WHERE post_id = ?', [postId]);
+        await db.promise().query('DELETE FROM comments WHERE post_id = ?', [postId]);
+        await db.promise().query('DELETE FROM favorite_posts WHERE post_id = ?', [postId]);
+        await db.promise().query('DELETE FROM hidden_posts_by_users WHERE post_id = ?', [postId]);
+        // await db.promise().query('DELETE FROM post_reports WHERE post_id = ?', [postId]); // Tạm khóa để tránh lỗi
+
+        // 5. Xóa khỏi bảng posts chính
+        await db.promise().query('DELETE FROM posts WHERE id = ?', [postId]);
+
         res.json({ success: true, message: 'Bài đăng đã được chuyển vào Kho lưu trữ.' });
 
     } catch (err) {
         console.error(err);
         return res.status(500).json({ success: false, message: 'Lỗi DB khi xóa bài đăng.' });
-    }
-};
-
-/**
- * @desc Lấy danh sách bài viết trong Kho lưu trữ
- */
-exports.getArchivedPosts = async (req, res) => {
-    const { user_id, type } = req.query; // type: 'personal' | 'group'
-
-    try {
-        let condition = "";
-        if (type === 'group') {
-            condition = "AND p.group_id IS NOT NULL";
-        } else {
-            condition = "AND p.group_id IS NULL";
-        }
-
-        const sql = `
-            SELECT p.*, g.name AS group_name, u.full_name, u.avatar
-            FROM posts p
-            JOIN users u ON p.user_id = u.id
-            LEFT JOIN groups g ON p.group_id = g.id
-            WHERE p.user_id = ? 
-            AND p.deleted_at IS NOT NULL
-            ${condition}
-            ORDER BY p.deleted_at DESC
-        `;
-
-        const [posts] = await db.promise().query(sql, [user_id]);
-        res.json(posts);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ success: false, message: 'Lỗi tải kho lưu trữ.' });
-    }
-};
-
-/**
- * @desc Khôi phục bài viết
- */
-exports.restorePost = async (req, res) => {
-    const { postId } = req.params;
-    const { user_id } = req.body; // Cần kiểm tra quyền chủ sở hữu
-
-    try {
-        // Chỉ chủ bài viết mới được khôi phục
-        const [post] = await db.promise().query('SELECT user_id FROM posts WHERE id = ?', [postId]);
-        if (post.length === 0) return res.status(404).json({ success: false, message: 'Bài viết không tồn tại.' });
-
-        if (String(post[0].user_id) !== String(user_id)) {
-            return res.status(403).json({ success: false, message: 'Không có quyền khôi phục.' });
-        }
-
-        await db.promise().query('UPDATE posts SET deleted_at = NULL WHERE id = ?', [postId]);
-        res.json({ success: true, message: 'Đã khôi phục bài viết thành công.' });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ success: false, message: 'Lỗi server.' });
     }
 };
 
@@ -275,26 +267,7 @@ exports.permanentDeletePost = async (req, res) => {
     }
 };
 
-/**
- * @desc Tự động dọn dẹp bài viết đã xóa quá 30 ngày
- * Hàm này có thể được gọi khi server khởi động
- */
-exports.autoCleanup = async () => {
-    try {
-        console.log("🧹 Đang chạy Auto Cleanup cho Kho lưu trữ...");
-        const sql = `
-            DELETE FROM posts 
-            WHERE deleted_at IS NOT NULL 
-            AND deleted_at < DATE_SUB(NOW(), INTERVAL 30 DAY)
-        `;
-        const [result] = await db.promise().query(sql);
-        if (result.affectedRows > 0) {
-            console.log(`✅ Đã xóa vĩnh viễn ${result.affectedRows} bài viết hết hạn lưu trữ.`);
-        }
-    } catch (err) {
-        console.error("❌ Lỗi Auto Cleanup:", err);
-    }
-};
+// [REMOVED] autoCleanup logic moved to jobs/cleanupArchive.js
 
 
 /**
@@ -663,20 +636,39 @@ exports.unhidePostForUser = async (req, res) => {
  * @route PUT /api/posts/:postId
  * @desc Sửa nội dung bài viết
  */
+/**
+ * @route PUT /api/posts/:postId
+ * @desc Sửa nội dung bài viết (với hỗ trợ Media)
+ */
 exports.updatePost = async (req, res) => {
     const { postId } = req.params;
     const { user_id, content } = req.body;
 
+    // Lấy type từ query (giống createPost)
+    const type = req.query.type || 'post';
+    const media_url = req.file ? `uploads/${type}s/${req.file.filename}` : undefined;
+
     try {
-        const [result] = await db.promise().query(
-            'UPDATE posts SET content = ? WHERE id = ? AND user_id = ?',
-            [content, postId, user_id]
-        );
+        let sql, params;
+
+        if (media_url) {
+            // Nếu có upload ảnh mới -> Cập nhật cả nội dung và ảnh
+            sql = 'UPDATE posts SET content = ?, media_url = ? WHERE id = ? AND user_id = ?';
+            params = [content, media_url, postId, user_id];
+        } else {
+            // Nếu không upload ảnh mới -> Chỉ cập nhật nội dung
+            sql = 'UPDATE posts SET content = ? WHERE id = ? AND user_id = ?';
+            params = [content, postId, user_id];
+        }
+
+        const [result] = await db.promise().query(sql, params);
 
         if (result.affectedRows > 0) {
-            res.json({ success: true, message: "Cập nhật bài viết thành công." });
+            // Lấy lại dữ liệu mới nhất để trả về cho frontend cập nhật UI
+            const [updatedPost] = await db.promise().query('SELECT * FROM posts WHERE id = ?', [postId]);
+            res.json({ success: true, message: "Cập nhật bài viết thành công.", post: updatedPost[0] });
         } else {
-            res.status(403).json({ success: false, message: "Không có quyền sửa bài này." });
+            res.status(403).json({ success: false, message: "Không có quyền sửa bài này (hoặc bài không tồn tại)." });
         }
     } catch (err) {
         console.error(err);

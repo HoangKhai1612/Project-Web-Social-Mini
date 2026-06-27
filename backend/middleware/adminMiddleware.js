@@ -5,7 +5,6 @@ const requireAdmin = (req, res, next) => {
     // 1. Kiểm tra xem user đã được authenticate chưa (từ authMiddleware)
     // Giả sử authMiddleware đã chạy trước và gán req.user
     // Nếu chưa dùng authMiddleware chung, ta có thể verify lại token ở đây hoặc assume chain: auth -> admin
-
     // Để an toàn, ta check lại token hoặc check property req.user đã được populate
     const token = req.headers['authorization'];
 
@@ -23,18 +22,18 @@ const requireAdmin = (req, res, next) => {
             req.user = decoded;
         }
 
-        console.log('[AdminMiddleware] Checking user:', req.user); // [DEBUG]
+        console.log('[AdminMiddleware] Checking user:', req.user);
 
         // 2. Check ROLE
         if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
-            console.log('[AdminMiddleware] FAILED: Role is', req.user.role); // [DEBUG]
+            console.log('[AdminMiddleware] FAILED: Role is', req.user.role);
             return res.status(403).json({ success: false, message: 'Bạn không có quyền truy cập Admin.' });
         }
 
         next();
 
     } catch (err) {
-        console.error('[AdminMiddleware] Error:', err.message); // [DEBUG]
+        console.error('[AdminMiddleware] Error:', err.message);
         return res.status(403).json({ success: false, message: 'Phiên đăng nhập hết hạn hoặc không hợp lệ.' });
     }
 };

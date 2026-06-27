@@ -1,6 +1,6 @@
 // TRONG frontend/js/modules/newsfeed.js
 
-import { API_URL, showToast, getTimeAgo, showConfirmDialog, defaultConfig, io, getAvatarUrl, apiFetch } from '../main.js';
+import { showToast, getTimeAgo, showConfirmDialog, defaultConfig, getAvatarUrl, apiFetch, API_URL, io } from '../main.js';
 
 // Hàm helper để lấy cấu hình UI
 const getConfig = () => window.elementSdk?.config || defaultConfig;
@@ -213,15 +213,19 @@ export function renderPost(post) {
 }
 
 function renderMenuItems(post, isMyPost, isAdmin) {
+    const itemClass = "w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors";
+    const deleteClass = "w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors";
+
     if (isMyPost) {
         // Menu cho chính chủ
         return `
-            <button onclick="window.NewsfeedModule.editPost('${post.id}')" class="...">✏️ Sửa bài viết</button>
-            <button onclick="window.NewsfeedModule.toggleVisibility('${post.id}')" class="...">
+            <button onclick="window.NewsfeedModule.toggleVisibility('${post.id}')" class="${itemClass}">
                 ${post.visibility === 1 ? '🌍 Chuyển sang Công khai' : '🔒 Chuyển sang Chỉ mình tôi'}
             </button>
-            <hr class="...">
-            <button onclick="window.NewsfeedModule.deletePost('${post.id}')" class="text-red-500 ...">🗑️ Xóa bài viết</button>
+            <hr class="border-t border-gray-100 dark:border-slate-700 my-1">
+            <button onclick="window.NewsfeedModule.deletePost('${post.id}')" class="${deleteClass}">
+                🗑️ Xóa bài viết
+            </button>
         `;
     } else {
         // Menu cho người xem
@@ -229,14 +233,16 @@ function renderMenuItems(post, isMyPost, isAdmin) {
         const canDelete = isAdmin || (post.viewer_group_role === 'admin' || post.viewer_group_role === 'creator');
 
         return `
-            <button onclick="window.NewsfeedModule.togglePersonalHide('${post.id}', ${post.is_hidden_by_me})">
+            <button onclick="window.NewsfeedModule.togglePersonalHide('${post.id}')" class="${itemClass}">
                 ${post.is_hidden_by_me ? '👁️ Mở ẩn bài viết này' : '🚫 Ẩn bài viết này'}
             </button>
-            <button onclick="window.NewsfeedModule.toggleFavorite('${post.id}', ${post.is_favorite})">
+            <button onclick="window.NewsfeedModule.toggleFavorite('${post.id}', ${post.is_favorite})" class="${itemClass}">
                 ${post.is_favorite ? '💔 Hủy yêu cầu yêu thích' : '⭐ Thêm vào yêu thích'}
             </button>
-            <button onclick="window.openReportModal('post', '${post.id}')">🚩 Báo cáo</button>
-            ${canDelete ? `<hr class="..."><button onclick="window.NewsfeedModule.deletePost('${post.id}')" class="text-red-500 ...">🗑️ Xóa bài viết (Admin)</button>` : ''}
+            <button onclick="window.openReportModal('post', '${post.id}')" class="${itemClass}">
+                🚩 Báo cáo
+            </button>
+            ${canDelete ? `<hr class="border-t border-gray-100 dark:border-slate-700 my-1"><button onclick="window.NewsfeedModule.deletePost('${post.id}')" class="${deleteClass}">🗑️ Xóa bài viết (Admin)</button>` : ''}
         `;
     }
 }
@@ -346,68 +352,199 @@ export async function togglePersonalHide(postId) {
     }
 }
 
+
 export async function editPost(postId) {
-    // Logic đơn giản: Hiện prompt để sửa nội dung (Bạn có thể làm modal xịn hơn sau)
-    const newContent = prompt("Nhập nội dung mới cho bài viết:");
-    if (!newContent) return;
+    // 1. Fetch current post content
+    try {
+        const res = await apiFetch(`/posts/${postId}`);
+        if (!res || !res.ok) return;
+        const postData = await res.json();
+        const config = getConfig();
+        const { textColor, primaryAction, fontSize } = config;
+
+        const modalBody = document.getElementById('modalBody');
+        if (!modalBody) return;
+
+        // 2. Render UI giống hệt showCreatePostModal
+        modalBody.innerHTML = `
+            <div class="post-modal-content w-full">
+                <div class="p-4 border-b border-base flex justify-between items-center">
+                    <h3 class="font-bold text-content text-lg" style="color:${textColor};">✏️ Sửa bài viết</h3>
+                    <button onclick="window.closeModal()" class="text-2xl text-content">✕</button>
+                </div>
+                
+                <div class="p-4 max-h-[70vh] overflow-y-auto">
+                    <!-- User Info Header -->
+                    <div class="flex items-center gap-2 mb-4">
+                        ${getAvatarWithStatusHtml(postData.user_id, postData.avatar, postData.gender, 'w-8 h-8')}
+                        <div class="font-semibold text-content text-sm" style="color:${textColor};">${postData.full_name}</div>
+                    </div>
+
+                    <!-- Content Textarea -->
+                    <textarea id="editPostContent" placeholder="Bạn đang nghĩ gì?"
+                        class="w-full p-3 border rounded-lg mb-3 border-base text-content bg-transparent focus:ring-0"
+                        style="font-size:${fontSize}px;" rows="4">${postData.content || ''}</textarea>
+
+                    <!-- Media Preview Area -->
+                    <div id="editMediaPreview" class="mb-3 relative group">
+                        ${renderEditMediaPreview(postData.media_url)}
+                    </div>
+
+                    <!-- Hidden Inputs -->
+                    <input type="file" id="editImageInput" accept="image/*" class="hidden">
+                    <input type="file" id="editVideoInput" accept="video/*" class="hidden">
+
+                    <!-- Action Buttons -->
+                    <div class="flex gap-2 mb-4">
+                        <button onclick="document.getElementById('editImageInput').click()" 
+                                class="flex-1 p-2 border rounded-lg border-base hover:bg-slate-50 dark:hover:bg-slate-700 transition flex items-center justify-center gap-2 text-secondary">
+                            🖼️ Thay ảnh
+                        </button>
+                        <button onclick="document.getElementById('editVideoInput').click()" 
+                                class="flex-1 p-2 border rounded-lg border-base hover:bg-slate-50 dark:hover:bg-slate-700 transition flex items-center justify-center gap-2 text-secondary">
+                            🎥 Thay video
+                        </button>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button id="editPostButton" onclick="window.NewsfeedModule.submitEditPost('${postId}')"
+                        class="btn-primary w-full p-3 text-white rounded-lg font-bold shadow-sm hover:shadow-md transition-all"
+                        style="background:${primaryAction}; font-size:${fontSize}px;">
+                        Lưu thay đổi
+                    </button>
+                </div>
+            </div>
+        `;
+
+        window.openModal('Sửa bài viết', '');
+
+        // 3. Attach Event Listeners for Live Preview
+        const imageInput = document.getElementById('editImageInput');
+        const videoInput = document.getElementById('editVideoInput');
+        const previewContainer = document.getElementById('editMediaPreview');
+
+        const handleFileSelect = (type) => (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Reset input kia để đảm bảo chỉ chọn 1 loại media
+            if (type === 'image') videoInput.value = '';
+            else imageInput.value = '';
+
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                previewContainer.innerHTML = type === 'image'
+                    ? `<div class="relative"><img src="${ev.target.result}" class="w-full rounded-lg border border-base"><button onclick="window.NewsfeedModule.clearEditMedia()" class="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1 hover:bg-red-500 transition">✕</button></div>`
+                    : `<div class="relative"><video src="${ev.target.result}" controls class="w-full rounded-lg border border-base"></video><button onclick="window.NewsfeedModule.clearEditMedia()" class="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1 hover:bg-red-500 transition">✕</button></div>`;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        imageInput.addEventListener('change', handleFileSelect('image'));
+        videoInput.addEventListener('change', handleFileSelect('video'));
+
+        // Helper để xóa media (Exposed to window)
+        window.NewsfeedModule.clearEditMedia = function () {
+            previewContainer.innerHTML = '';
+            imageInput.value = '';
+            videoInput.value = '';
+        };
+
+    } catch (err) {
+        showToast('Không thể tải nội dung bài viết', 'error');
+    }
+}
+
+// Helper render media cũ
+function renderEditMediaPreview(mediaUrl) {
+    if (!mediaUrl) return '';
+    const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${API_URL.replace('/api', '')}/${mediaUrl}`;
+
+    // Check type extension
+    if (mediaUrl.match(/\.(mp4|mov|avi|webm)$/i)) {
+        return `
+            <div class="relative">
+                <video src="${fullUrl}" controls class="w-full rounded-lg border border-base"></video>
+                <div class="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded">Media hiện tại</div>
+            </div>`;
+    }
+    return `
+        <div class="relative">
+            <img src="${fullUrl}" class="w-full rounded-lg border border-base">
+            <div class="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded">Media hiện tại</div>
+        </div>`;
+}
+
+export async function submitEditPost(postId) {
+    const content = document.getElementById('editPostContent')?.value.trim();
+    const imageInput = document.getElementById('editImageInput');
+    const videoInput = document.getElementById('editVideoInput');
+    const mediaPreview = document.getElementById('editMediaPreview');
+
+    // Basic Validation
+    if (!content && !mediaPreview.innerHTML && (!imageInput.files.length && !videoInput.files.length)) {
+        showToast('Nội dung không được để trống', 'error');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('user_id', window.currentUser.userId);
+    formData.append('content', content);
+
+    // Kiem tra file moi
+    if (imageInput.files[0]) {
+        formData.append('media', imageInput.files[0]);
+    } else if (videoInput.files[0]) {
+        formData.append('media', videoInput.files[0]);
+    }
 
     try {
-        const res = await apiFetch(`/posts/${postId}`, {
+        const btn = document.getElementById('editPostButton');
+        const oldText = btn.innerText;
+        btn.disabled = true;
+        btn.innerText = "Đang lưu...";
+
+        // [QUAN TRỌNG] Dùng apiFetch nhưng bỏ header Content-Type de browser tu set boundary
+        // Tuy nhien apiFetch mac dinh set JSON, nen ta can workaround hoac dung fetch truc tiep kem auth header
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/posts/${postId}?type=post`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: window.currentUser.userId,
-                content: newContent
-            })
+            headers: {
+                'Authorization': `Bearer ${token}`
+                // KHONG SET CONTENT-TYPE
+            },
+            body: formData
         });
-        if (!res) return;
+
         const data = await res.json();
+
+        btn.disabled = false;
+        btn.innerText = oldText;
+
         if (data.success) {
             showToast('Đã cập nhật bài viết', 'success');
-            loadPosts(window.currentUser.userId, 'postsFeed'); // Tải lại danh sách
+            window.closeModal();
+
+            // Reload feed tuong ung
+            if (window.currentView === 'home') {
+                loadPosts(window.currentUser.userId, 'postsFeed');
+            } else if (window.currentView.startsWith('profile')) {
+                const profileUserId = window.currentView.split('_')[1];
+                loadPosts(profileUserId, 'profilePostsContainer');
+            }
+        } else {
+            showToast(data.message || 'Lỗi cập nhật', 'error');
         }
     } catch (err) {
+        console.error(err);
         showToast('Lỗi khi sửa bài viết', 'error');
     }
 }
 
 
-export function showReportModal(postId) {
-    const modalBody = document.getElementById('modalBody');
-    modalBody.innerHTML = `
-        <div class="p-5 surface rounded-xl shadow-lg">
-            <h3 class="text-lg font-bold mb-4">Báo cáo vi phạm</h3>
-            <select id="reportReason" class="w-full p-3 border rounded-lg mb-4 border-base text-content">
-                <option value="spam">Nội dung rác (Spam)</option>
-                <option value="harassment">Quấy rối/Xúc phạm</option>
-                <option value="hate_speech">Ngôn từ thù ghét</option>
-                <option value="fake_news">Thông tin sai sự thật</option>
-            </select>
-            <textarea id="reportDetail" class="w-full p-3 border rounded-lg border-base text-content mb-4" placeholder="Mô tả thêm chi tiết..."></textarea>
-            <div class="flex gap-2">
-                <button onclick="window.closeModal()" class="flex-1 p-3 bg-gray-100 rounded-lg">Hủy</button>
-                <button onclick="window.NewsfeedModule.submitReport('${postId}')" class="flex-1 p-3 bg-red-500 text-white rounded-lg">Gửi báo cáo</button>
-            </div>
-        </div>
-    `;
-    window.openModal();
-}
 
-export async function submitReport(postId) {
-    const reason = document.getElementById('reportReason').value;
-    const detail = document.getElementById('reportDetail').value;
-    try {
-        const res = await apiFetch(`/posts/${postId}/report`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: window.currentUser.userId, reason, detail })
-        });
-        if (res && res.ok) {
-            showToast('Cảm ơn bạn! Báo cáo đã được gửi tới Admin.', 'success');
-            window.closeModal();
-        }
-    } catch (err) { showToast('Lỗi gửi báo cáo', 'error'); }
-}
+
+
 
 /* ============================================================
     GIAO DIỆN HOME
@@ -783,6 +920,7 @@ export async function addComment(postId, parentId = null) {
 export function showReplyForm(postId, parentId, parentName) {
     const inputElement = document.getElementById('newCommentInput');
     const submitBtn = document.getElementById('commentSubmitBtn');
+
 
     inputElement.placeholder = `Trả lời ${parentName}...`;
     inputElement.focus();
@@ -1323,14 +1461,18 @@ export function switchArchiveTab(tab) {
 /** Tải bài viết lưu trữ */
 export async function loadArchivedPosts(type) {
     const container = document.getElementById('archiveFeed');
+    if (!container) return;
     container.innerHTML = `<div class="text-center p-8 text-secondary">Đang tải...</div>`;
 
     try {
-        const res = await fetch(`${API_URL}/posts/archive?user_id=${window.currentUser.userId}&type=${type}`);
-        const posts = await res.json();
+        // Sử dụng endpoint tích hợp mới trong userRoutes
+        const res = await apiFetch(`/users/archive/deleted?user_id=${window.currentUser.userId}&category=${type}`);
+        if (!res.ok) throw new Error('API Error');
+        const data = await res.json();
+        const posts = data.posts || [];
 
         if (posts.length === 0) {
-            container.innerHTML = `<div class="text-center p-8 surface rounded-lg text-secondary">Thùng rác trống! 🗑️</div>`;
+            container.innerHTML = `<div class="text-center p-8 surface rounded-lg text-secondary">Thành thùng rác trống! 🗑️</div>`;
             return;
         }
 
@@ -1339,11 +1481,11 @@ export async function loadArchivedPosts(type) {
                 <div class="flex justify-between items-start mb-2">
                     <div class="text-xs text-secondary mb-2">
                         Đã xóa: ${new Date(post.deleted_at).toLocaleString()} <br>
-                        (Tự động xóa vĩnh viễn sau 30 ngày)
+                        (Còn ${post.days_left} ngày để khôi phục)
                     </div>
                 </div>
                 
-                <div class="mb-2 text-content font-medium line-clamp-2">${post.content || '[Chỉ có hình ảnh]'}</div>
+                <div class="mb-2 text-content font-medium line-clamp-2">${post.content || '[Hình ảnh / Video]'}</div>
                 ${post.media_url ? '<div class="text-xs text-blue-500 mb-2">📷 Có đính kèm file media</div>' : ''}
 
                 <div class="flex gap-2 border-t border-base pt-3 mt-2">
@@ -1358,50 +1500,102 @@ export async function loadArchivedPosts(type) {
                 </div>
             </div>
         `).join('');
-
-    } catch (err) {
-        container.innerHTML = `<div class="text-center text-red-500">Lỗi tải dữ liệu.</div>`;
+    } catch (e) {
+        console.error('Error loading archive:', e);
+        container.innerHTML = `<div class="text-center p-8 text-red-500">Lỗi tải dữ liệu. Vui lòng thử lại.</div>`;
     }
 }
 
 /** Khôi phục bài viết */
 export async function restorePost(postId) {
-    if (!confirm('Bạn muốn khôi phục bài viết này? Nó sẽ xuất hiện lại trên bảng tin.')) return;
-
+    if (!confirm('Bạn có chắc chắn muốn khôi phục bài viết này?')) return;
     try {
-        const res = await fetch(`${API_URL}/posts/${postId}/restore`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: window.currentUser.userId })
+        const res = await apiFetch(`/users/archive/restore/${postId}?user_id=${window.currentUser.userId}`, {
+            method: 'POST'
         });
-
-        if (res.ok) {
-            showToast('Đã khôi phục bài viết! 🎉', 'success');
-            document.getElementById(`archived-post-${postId}`)?.remove();
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            loadArchivedPosts(window.currentArchiveTab || 'personal');
         } else {
-            showToast('Lỗi khôi phục', 'error');
+            showToast(data.message, 'error');
         }
-    } catch (err) { showToast('Lỗi server', 'error'); }
+    } catch (e) {
+        showToast('Lỗi hệ thống', 'error');
+    }
 }
 
-/** Xóa vĩnh viễn bài viết */
+/** Xóa vĩnh viễn */
 export async function permanentDeletePost(postId) {
-    if (!confirm('CẢNH BÁO: Bài viết sẽ bị xóa vĩnh viễn và KHÔNG THỂ khôi phục. Bạn chắc chứ?')) return;
-
+    if (!confirm('Hành động này không thể hoàn tác. Bạn có chắc chắn muốn xóa vĩnh viễn?')) return;
     try {
-        const res = await fetch(`${API_URL}/posts/${postId}/permanent`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: window.currentUser.userId })
+        const res = await apiFetch(`/users/archive/permanent/${postId}?user_id=${window.currentUser.userId}`, {
+            method: 'DELETE'
         });
-
-        if (res.ok) {
-            showToast('Đã xóa vĩnh viễn.', 'success');
-            document.getElementById(`archived-post-${postId}`)?.remove();
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            loadArchivedPosts(window.currentArchiveTab || 'personal');
         } else {
-            showToast('Lỗi xóa vĩnh viễn', 'error');
+            showToast(data.message, 'error');
         }
-    } catch (err) { showToast('Lỗi server', 'error'); }
+    } catch (e) {
+        showToast('Lỗi hệ thống', 'error');
+    }
+}
+
+/* ============================================================
+    NAVIGATION & SCROLLING (NEW FEATURE)
+============================================================ */
+
+/**
+ * @desc Điều hướng thông minh đến bài viết (từ thông báo hoặc link)
+ * @param {string | number} postId 
+ */
+export async function navigateToPost(postId) {
+    try {
+        const res = await apiFetch(`/posts/${postId}/check`);
+
+        let info = { exists: false };
+        if (res.ok) {
+            info = await res.json();
+        }
+
+        if (!info.exists) {
+            showToast("Bài viết không còn tồn tại hoặc đã bị xóa.", "error");
+            return;
+        }
+
+        // 2. Logic chuyển hướng
+        if (info.groupId) {
+            // --- BÀI VIẾT TRONG GROUP ---
+            window.switchView('group', info.groupId);
+            setTimeout(() => scrollToPost(postId), 1500);
+
+        } else {
+            // --- BÀI VIẾT CÁ NHÂN ---
+            window.switchView('profile', info.ownerId);
+            setTimeout(() => scrollToPost(postId), 1500);
+        }
+
+    } catch (err) {
+        console.error("Navigation Error:", err);
+        showToast("Không thể đi đến bài viết này.", "error");
+    }
+}
+
+/** 
+ * @desc Scroll đến bài viết và highlight
+ */
+function scrollToPost(postId) {
+    const el = document.getElementById(`post-${postId}`);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('highlight-post');
+        setTimeout(() => el.classList.remove('highlight-post'), 2500);
+    } else {
+        showToast("Đã chuyển trang, nhưng không tìm thấy bài viết trên đầu trang tin.", "info");
+    }
 }
 
 /* ============================================================
@@ -1462,12 +1656,14 @@ window.NewsfeedModule = {
     showReplyForm, // Hiển thị Reply Form
     setCommentReaction, // Reaction Comment,
     editPost, // PHẢI CÓ DÒNG NÀY
+    submitEditPost, // [NEW] Export submit function
     togglePostMenu,
     toggleVisibility,
     togglePersonalHide,
     toggleFavorite,
-    showReportModal,
+
     processShareAction,
+    navigateToPost, // [NEW] Export navigate function
 
     // Archive
     renderArchivePage,

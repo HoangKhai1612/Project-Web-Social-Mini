@@ -1,9 +1,8 @@
 // backend/controllers/notificationController.js
 
 const db = require('../config/database');
-const { createNotification } = require('../utils/helpers');
-// SỬA LỖI: Cần require cả areFriends và getFriendsIds
-const { areFriends, getFriendsIds } = require('../utils/notificationLogic');
+const { createNotification } = require('../utils/notificationUtils');
+const { areFriends, getFriendsIds } = require('../utils/friendshipUtils');
 const getIo = (req) => req.app.get('io');
 
 

@@ -1,22 +1,13 @@
 import { API_URL, getAvatarUrl, apiFetch } from '../main.js';
 
-// ============================================
 // STATE VÀ MOCK
-// ============================================
-
 let searchTimeout;
-
-// ============================================
-// HANDLERS TÌM KIẾM
-// ============================================
-
-/** Tải lịch sử tìm kiếm (Real API) */
-export async function handleSearchFocus() {
-    const dropdown = document.getElementById('searchDropdown');
-    const input = document.getElementById('globalSearchInput');
+export async function handleSearchFocus() {// Tải lịch sử tìm kiếm (Real API)
+    const dropdown = document.getElementById('searchDropdown');// Lấy dropdown
+    const input = document.getElementById('globalSearchInput');// Lấy input
     if (!dropdown) return;
 
-    dropdown.classList.remove('hidden');
+    dropdown.classList.remove('hidden');// Hiển thị dropdown
 
     // Nếu có text tìm kiếm thì không hiển thị lịch sử mà hiển thị kết quả hiện tại
     if (input && input.value.trim().length > 0) {
@@ -24,11 +15,11 @@ export async function handleSearchFocus() {
     }
 
     try {
-        const res = await apiFetch(`/search/history?userId=${window.currentUser.userId}`);
+        const res = await apiFetch(`/search/history?userId=${(window.currentUser.id || window.currentUser.userId)}`);// Lấy lịch sử tìm kiếm
         const data = await res.json();
-        const history = data.history || [];
+        const history = data.history || [];// Lấy lịch sử tìm kiếm
 
-        if (history.length > 0) {
+        if (history.length > 0) {// Nếu có lịch sử tìm kiếm
             dropdown.innerHTML = `
                 <div class="p-3 font-semibold text-secondary border-b border-base flex justify-between items-center">
                     <span>Lịch sử gần đây</span>
@@ -48,22 +39,21 @@ export async function handleSearchFocus() {
                 </div>
             `;
         } else {
-            dropdown.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm italic">Chưa có lịch sử tìm kiếm gần đây.</div>';
+            dropdown.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm italic">Chưa có lịch sử tìm kiếm gần đây.</div>';// Nếu không có lịch sử tìm kiếm
         }
     } catch (err) {
         console.error("Error loading search history:", err);
-        dropdown.innerHTML = '<div class="p-4 text-center text-red-400 text-sm">Lỗi tải lịch sử.</div>';
+        dropdown.innerHTML = '<div class="p-4 text-center text-red-400 text-sm">Lỗi tải lịch sử.</div>';// Nếu có lỗi
     }
 }
 
-/** Thêm vào lịch sử */
-export async function addToHistory(itemId, itemType, itemName) {
+export async function addToHistory(itemId, itemType, itemName) {// Thêm vào lịch sử
     try {
         await apiFetch(`/search/history`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                userId: window.currentUser.userId,
+                userId: (window.currentUser.id || window.currentUser.userId),
                 itemId,
                 itemType,
                 itemName
@@ -74,11 +64,10 @@ export async function addToHistory(itemId, itemType, itemName) {
     }
 }
 
-/** Xóa 1 mục lịch sử */
-export async function deleteHistoryItem(id, event) {
-    if (event) event.stopPropagation();
+export async function deleteHistoryItem(id, event) {// Xóa 1 mục lịch sử
+    if (event) event.stopPropagation();// Ngăn chặn sự kiện lan ra ngoài
     try {
-        const res = await apiFetch(`/search/history/${id}?userId=${window.currentUser.userId}`, {
+        const res = await apiFetch(`/search/history/${id}?userId=${(window.currentUser.id || window.currentUser.userId)}`, {
             method: 'DELETE'
         });
         if (res && res.ok) {
@@ -89,11 +78,10 @@ export async function deleteHistoryItem(id, event) {
     }
 }
 
-/** Xóa toàn bộ lịch sử */
-export async function clearAllHistory() {
+export async function clearAllHistory() {// Xóa toàn bộ lịch sử
     if (!confirm("Bạn có chắc chắn muốn xóa toàn bộ lịch sử tìm kiếm?")) return;
     try {
-        const res = await apiFetch(`/search/history?userId=${window.currentUser.userId}`, {
+        const res = await apiFetch(`/search/history?userId=${(window.currentUser.id || window.currentUser.userId)}`, {
             method: 'DELETE'
         });
         if (res && res.ok) {
@@ -104,8 +92,7 @@ export async function clearAllHistory() {
     }
 }
 
-/** Chuyển view và lưu lịch sử */
-export function clickHistoryItem(id, type, name) {
+export function clickHistoryItem(id, type, name) {// Chuyển view và lưu lịch sử
     addToHistory(id, type, name);
     window.switchView(type, id);
 
@@ -113,20 +100,18 @@ export function clickHistoryItem(id, type, name) {
     clearGlobalSearch();
 }
 
-/** Xóa nội dung tìm kiếm và đóng dropdown */
-export function clearGlobalSearch() {
+export function clearGlobalSearch() {// Xóa nội dung tìm kiếm và đóng dropdown
     const input = document.getElementById('globalSearchInput');
     const dropdown = document.getElementById('searchDropdown');
     if (input) input.value = '';
     if (dropdown) dropdown.classList.add('hidden');
 }
 
-/** Xử lý tìm kiếm khi người dùng nhập (Debounce) */
-export function handleSearchInput(query) {
-    const dropdown = document.getElementById('searchDropdown');
+export function handleSearchInput(query) {// Xử lý tìm kiếm khi người dùng nhập (Debounce)
+    const dropdown = document.getElementById('searchDropdown');// Lấy dropdown
     if (!dropdown) return;
 
-    if (query.trim().length > 0) {
+    if (query.trim().length > 0) {// Nếu có text tìm kiếm
         dropdown.classList.remove('hidden');
         dropdown.innerHTML = '<div class="p-4 text-center"> <div class="animate-spin inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full mb-2"></div> <div class="text-xs text-secondary italic">Đang tìm kiếm...</div> </div>';
 
@@ -140,13 +125,11 @@ export function handleSearchInput(query) {
     }
 }
 
-/** Gọi API và Render kết quả tìm kiếm */
-async function fetchSearchResults(query) {
+async function fetchSearchResults(query) {// Gọi API và Render kết quả tìm kiếm
     const dropdown = document.getElementById('searchDropdown');
     if (!dropdown) return;
 
     try {
-        // [MODIFIED] Sử dụng apiFetch để tự động đính kèm Token
         const userRes = await apiFetch(`/users/search?q=${query}`);
         const users = (userRes && userRes.ok) ? await userRes.json() : [];
 
@@ -173,7 +156,7 @@ async function fetchSearchResults(query) {
         }
 
         if (html === '') {
-            dropdown.innerHTML = `<div class="p-4 text-center text-secondary text-sm italic">Không tìm thấy kết quả nào cho "${query}".</div>`;
+            dropdown.innerHTML = `<div class="p-4 text-center text-secondary text-sm italic">Không tìm thấy kết quả nào cho "${query}".</div>`;// Không tìm thấy kết quả
         } else {
             dropdown.innerHTML = html;
         }
@@ -184,10 +167,9 @@ async function fetchSearchResults(query) {
     }
 }
 
-/** Render phần Người dùng */
-function renderUserResults(users) {
+function renderUserResults(users) {// Render phần Người dùng
     let html = `<div class="p-3 font-semibold text-content border-b border-base text-xs uppercase tracking-widest text-slate-400">👤 Người dùng</div>`;
-    users.slice(0, 5).forEach(user => {
+    users.slice(0, 5).forEach(user => {// Lấy 5 người dùng đầu tiên
         html += `
             <div class="flex items-center justify-between p-3 hover:bg-slate-50 cursor-pointer text-content transition"
                  onclick="window.SearchModule.clickHistoryItem('${user.id}', 'profile', '${user.full_name}')">
@@ -204,10 +186,9 @@ function renderUserResults(users) {
     return html;
 }
 
-/** Render phần Bài đăng */
-function renderPostResults(posts) {
+function renderPostResults(posts) {// Render phần Bài đăng
     let html = `<div class="p-3 font-semibold text-content border-b border-base text-xs uppercase tracking-widest text-slate-400">📰 Bài đăng</div>`;
-    posts.slice(0, 3).forEach(post => {
+    posts.slice(0, 3).forEach(post => {// Lấy 3 bài đăng đầu tiên
         html += `
              <div class="p-3 hover:bg-slate-50 cursor-pointer text-content text-sm transition"
                    onclick="window.SearchModule.clickHistoryItem('${post.id}', 'post', '${post.content ? post.content.substring(0, 30) + '...' : 'Bài đăng'}')">
@@ -221,10 +202,9 @@ function renderPostResults(posts) {
     return html;
 }
 
-/** Render phần Group/Page */
-function renderGroupOrPageResults(items) {
+function renderGroupOrPageResults(items) {// Render phần Group/Page
     let html = `<div class="p-3 font-semibold text-content border-b border-base text-xs uppercase tracking-widest text-slate-400">👥 Nhóm/Trang</div>`;
-    items.slice(0, 5).forEach(item => {
+    items.slice(0, 5).forEach(item => {// Lấy 5 nhóm/trang đầu tiên
         html += `
              <div class="p-3 hover:bg-slate-50 cursor-pointer text-content text-sm flex items-center gap-3 transition"
                    onclick="window.SearchModule.clickHistoryItem('${item.id}', 'group', '${item.full_name}')">
@@ -241,8 +221,7 @@ function renderGroupOrPageResults(items) {
     return html;
 }
 
-/** Logic Click Ngoài để đóng Dropdown */
-document.addEventListener('click', (e) => {
+document.addEventListener('click', (e) => {// Logic Click Ngoài để đóng Dropdown
     const searchBar = document.querySelector('.flex-1.max-w-xl.mx-4.relative');
     const dropdown = document.getElementById('searchDropdown');
     const input = document.getElementById('globalSearchInput');
@@ -250,24 +229,13 @@ document.addEventListener('click', (e) => {
     if (!searchBar || !dropdown || !input) return;
 
     const clickedInside = searchBar.contains(e.target) || dropdown.contains(e.target);
-    const hasText = input.value.trim().length > 0;
-
     if (!clickedInside) {
-        if (!hasText) {
-            dropdown.classList.add('hidden');
-        } else {
-            // Nếu đang có ký tự tìm kiếm, không cho phép "trỏ ra ngoài" 
-            // - Giữ dropdown hiển thị (đã có vì không add hidden)
-            // - Đưa focus ngược lại input (theo yêu cầu "không thể nào trỏ ra ngoài được")
-            input.focus();
-        }
+        // Luôn cho phép đóng dropdown khi bấm ra ngoài
+        dropdown.classList.add('hidden');
     }
 });
 
-// ============================================
 // EXPOSE TO WINDOW
-// ============================================
-
 window.SearchModule = {
     handleSearchFocus,
     handleSearchInput,

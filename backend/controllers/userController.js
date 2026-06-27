@@ -1,6 +1,7 @@
 const db = require('../config/database');
+const bcrypt = require('bcryptjs');
 const notificationController = require('./notificationController');
-const { isAdminOfGroup } = require('../utils/helpers');
+const { isAdminOfGroup } = require('../utils/permissionUtils');
 
 // Helper để lấy instance Socket.io từ request
 const getIo = (req) => req.app.get('io');
@@ -19,7 +20,7 @@ exports.getAcceptedFriends = async (req, res) => {
 
     const sql = `
         SELECT 
-            u.id, u.full_name, u.avatar, u.gender,
+            u.id, u.full_name, u.avatar, u.username, u.gender,
             (SELECT message FROM messages 
              WHERE (sender_id = u.id AND receiver_id = ?) OR (sender_id = ? AND receiver_id = u.id)
              ORDER BY created_at DESC LIMIT 1) AS last_message,
@@ -96,11 +97,13 @@ exports.getGroups = async (req, res) => {
     const sql = `
         SELECT 
             gc.id, gc.name, gc.created_at, gc.avatar,
-            (SELECT COUNT(*) FROM group_chat_members WHERE group_chat_id = gc.id) AS member_count
+            (SELECT COUNT(*) FROM group_chat_members WHERE group_chat_id = gc.id) AS member_count,
+            (SELECT message FROM messages WHERE receiver_id = gc.id ORDER BY created_at DESC LIMIT 1) AS last_message,
+            (SELECT created_at FROM messages WHERE receiver_id = gc.id ORDER BY created_at DESC LIMIT 1) AS last_message_time
         FROM group_chats gc
         JOIN group_chat_members gcm ON gc.id = gcm.group_chat_id
         WHERE gcm.user_id = ?
-        ORDER BY gc.created_at DESC
+        ORDER BY COALESCE(last_message_time, gc.created_at) DESC
     `;
     try {
         const [results] = await db.promise().query(sql, [userId]);
@@ -120,56 +123,100 @@ exports.getGroups = async (req, res) => {
  * @desc Lấy thông tin chi tiết trang cá nhân và tình trạng mối quan hệ giữa người xem và chủ profile
  */
 exports.getUserProfile = async (req, res) => {
-    const viewedUserId = req.params.id;
-    const viewerId = req.query.viewer_id;
-    if (!viewerId) return res.status(400).json({ success: false, message: "Missing viewer ID." });
+    const viewedUserId = req.params.id; // ID người bị xem
+    const viewerId = req.query.viewer_id; // ID người đang xem (từ localStorage gửi lên)
+
+    if (!viewerId) {
+        return res.status(400).json({ success: false, message: "Thiếu ID người xem (viewer_id)." });
+    }
 
     try {
-        // 1. Lấy thông tin chi tiết từ bảng users
+        // 1. Lấy thông tin chi tiết của người dùng bị xem
         const [userResults] = await db.promise().query(
-            `SELECT id, full_name, username, avatar, cover_img, bio, work_place, education, 
-             birthday, gender, relationship_status, location, privacy_setting, user_info 
+            `SELECT id, full_name, username, avatar, cover_img, bio, work_place, 
+                    education, birthday, gender, location, user_info, privacy_setting, created_at 
              FROM users WHERE id = ?`,
             [viewedUserId]
         );
 
-        if (userResults.length === 0) return res.status(404).json({ message: 'Không tìm thấy người dùng.' });
+        if (userResults.length === 0) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng.' });
+        }
 
         const user = userResults[0];
         let relationshipStatus = 'not_friends';
 
-        // 2. Xác định quan hệ giữa người xem và chủ profile
+        // 2. Xác định mối quan hệ giữa người xem và chủ profile
         if (String(viewerId) === String(viewedUserId)) {
             relationshipStatus = 'self';
         } else {
             const [friendship] = await db.promise().query(
                 `SELECT status, sender_id FROM friendships 
-                 WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) LIMIT 1`,
+                 WHERE (sender_id = ? AND receiver_id = ?) 
+                    OR (sender_id = ? AND receiver_id = ?) LIMIT 1`,
                 [viewerId, viewedUserId, viewedUserId, viewerId]
             );
 
             if (friendship.length > 0) {
-                const { status, sender_id } = friendship[0];
-                const isSender = String(sender_id) === String(viewerId);
-
-                if (status === 'accepted') relationshipStatus = 'friends';
-                else if (status === 'pending') relationshipStatus = isSender ? 'request_sent' : 'request_received';
-                else if (status === 'blocked') relationshipStatus = 'blocked';
+                const f = friendship[0];
+                if (f.status === 'accepted') {
+                    relationshipStatus = 'friends';
+                } else if (f.status === 'pending') {
+                    // Nếu viewer là người gửi -> 'request_sent', nếu viewer là người nhận -> 'request_received'
+                    relationshipStatus = (String(f.sender_id) === String(viewerId)) ? 'request_sent' : 'request_received';
+                } else if (f.status === 'blocked') {
+                    relationshipStatus = 'blocked';
+                }
             }
         }
 
-        // 3. Đếm tổng số bạn bè
+        // 3. Đếm tổng số bạn bè của chủ profile
         const [countResults] = await db.promise().query(
-            'SELECT COUNT(*) AS friend_count FROM friendships WHERE (sender_id = ? OR receiver_id = ?) AND status = "accepted"',
+            `SELECT COUNT(*) AS total FROM friendships 
+             WHERE (sender_id = ? OR receiver_id = ?) AND status = 'accepted'`,
             [viewedUserId, viewedUserId]
         );
+        const friendCount = countResults[0].total;
+
+        // 4. LOGIC QUYỀN RIÊNG TƯ (Lock Profile)
+        const isSelf = relationshipStatus === 'self';
+        const isFriend = relationshipStatus === 'friends';
+        const isPrivate = user.privacy_setting == 0; // Giả sử 0 là riêng tư, 1 là công khai
+
+        // Nếu KHÔNG PHẢI chính mình VÀ KHÔNG PHẢI bạn bè VÀ chủ nhà để RIÊNG TƯ
+        if (!isSelf && !isFriend && isPrivate) {
+            return res.json({
+                success: true,
+                user: {
+                    id: user.id,
+                    full_name: user.full_name,
+                    username: user.username,
+                    avatar: user.avatar,
+                    cover_img: user.cover_img,
+                    bio: 'Thông tin cá nhân đã bị khóa.',
+                    work_place: null,
+                    education: null,
+                    birthday: null,
+                    gender: null,
+                    location: null,
+                    privacy_setting: user.privacy_setting,
+                    created_at: user.created_at
+                },
+                relationshipStatus,
+                friend_count: friendCount,
+                is_private_profile: true,
+                message: 'Profile này đang ở chế độ riêng tư.'
+            });
+        }
 
         res.json({
             success: true,
             user,
             relationshipStatus,
-            friend_count: countResults[0].friend_count
+            friend_count: friendCount,
+            is_private_profile: false
         });
+
     } catch (error) {
         console.error('Error fetching user profile:', error);
         res.status(500).json({ error: 'Lỗi server khi tải trang cá nhân.' });
@@ -195,46 +242,6 @@ exports.getFriendList = async (req, res) => {
     } catch (err) {
         console.error('Error fetching friend list:', err);
         res.status(500).json({ success: false, message: 'Lỗi khi lấy danh sách bạn bè.' });
-    }
-};
-
-/**
- * @route PUT /api/users
- * @desc Cập nhật thông tin profile cá nhân
- */
-exports.updateProfile = async (req, res) => {
-    const { user_id, bio, work_place, education, birthday, location, user_info, avatar, cover_img } = req.body;
-
-    if (!user_id) return res.status(400).json({ success: false, message: "Thiếu ID người dùng." });
-
-    const sql = `
-        UPDATE users SET 
-        bio = COALESCE(?, bio), 
-        work_place = COALESCE(?, work_place), 
-        education = COALESCE(?, education), 
-        birthday = COALESCE(?, birthday), 
-        location = COALESCE(?, location), 
-        user_info = COALESCE(?, user_info),
-        avatar = COALESCE(?, avatar),
-        cover_img = COALESCE(?, cover_img)
-        WHERE id = ?
-    `;
-
-    try {
-        const [result] = await db.promise().query(sql, [
-            bio || null, work_place || null, education || null,
-            birthday || null, location || null, user_info || null,
-            avatar || null, cover_img || null, user_id
-        ]);
-
-        if (result.affectedRows > 0) {
-            res.json({ success: true, message: 'Cập nhật thông tin thành công!' });
-        } else {
-            res.status(404).json({ success: false, message: 'Không tìm thấy người dùng.' });
-        }
-    } catch (err) {
-        console.error("Error updating profile:", err);
-        return res.status(500).json({ success: false, message: 'Lỗi server khi lưu thông tin.' });
     }
 };
 
@@ -297,24 +304,6 @@ exports.manageFriendship = async (req, res) => {
 // ============================================
 // III. PHOTO & SHARING
 // ============================================
-
-/**
- * @route PUT /api/users/update-photo
- * @desc Cập nhật Avatar hoặc Cover image nhanh
- */
-exports.updatePhoto = async (req, res) => {
-    const { user_id, type, photo_url } = req.body;
-    const column = type === 'avatar' ? 'avatar' : 'cover_img';
-    if (!['avatar', 'cover_img'].includes(column)) return res.status(400).json({ message: "Invalid type" });
-
-    try {
-        await db.promise().query(`UPDATE users SET ${column} = ? WHERE id = ?`, [photo_url, user_id]);
-        res.json({ success: true, message: `Cập nhật ảnh thành công.` });
-    } catch (err) {
-        console.error('Error updating photo:', err);
-        res.status(500).json({ success: false });
-    }
-};
 
 /**
  * @route GET /api/users/share-targets
@@ -414,24 +403,6 @@ exports.searchUsers = async (req, res) => {
     }
 };
 
-/**
- * @route DELETE /api/posts/:postId
- */
-exports.deletePost = async (req, res) => {
-    const { postId } = req.params;
-    const userId = req.query.userId;
-    try {
-        const [result] = await db.promise().query('DELETE FROM posts WHERE id = ? AND user_id = ?', [postId, userId]);
-        if (result.affectedRows > 0) {
-            res.json({ success: true, message: "Đã xóa bài viết." });
-        } else {
-            res.status(403).json({ success: false, message: "Không có quyền xóa bài này." });
-        }
-    } catch (err) {
-        console.error('Error deleting post:', err);
-        res.status(500).json({ success: false });
-    }
-};
 
 /**
  * @route PUT /api/users/privacy
@@ -458,7 +429,11 @@ exports.updateEmail = async (req, res) => {
         // 1. Kiểm tra mật khẩu hiện tại
         const [user] = await db.promise().query('SELECT password FROM users WHERE id = ?', [user_id]);
 
-        if (user.length === 0 || user[0].password !== password) {
+        if (user.length === 0) {
+            return res.status(401).json({ success: false, message: "Người dùng không tồn tại." });
+        }
+        const isMatch = await bcrypt.compare(password, user[0].password);
+        if (!isMatch) {
             return res.status(401).json({ success: false, message: "Mật khẩu xác nhận không chính xác." });
         }
 
@@ -472,98 +447,6 @@ exports.updateEmail = async (req, res) => {
 
     } catch (err) {
         res.status(500).json({ success: false, message: "Lỗi hệ thống." });
-    }
-};
-
-exports.getUserProfile = async (req, res) => {
-    const viewedUserId = req.params.id; // ID người bị xem
-    const viewerId = req.query.viewer_id; // ID người đang xem (từ localStorage gửi lên)
-
-    if (!viewerId) {
-        return res.status(400).json({ success: false, message: "Thiếu ID người xem (viewer_id)." });
-    }
-
-    try {
-        // 1. Lấy thông tin chi tiết của người dùng bị xem
-        const [userResults] = await db.promise().query(
-            `SELECT id, full_name, username, avatar, cover_img, bio, work_place, 
-                    education, birthday, gender, location, privacy_setting, created_at 
-             FROM users WHERE id = ?`,
-            [viewedUserId]
-        );
-
-        if (userResults.length === 0) {
-            return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng.' });
-        }
-
-        const user = userResults[0];
-        let relationshipStatus = 'not_friends';
-
-        // 2. Xác định mối quan hệ giữa người xem và chủ profile
-        if (String(viewerId) === String(viewedUserId)) {
-            relationshipStatus = 'self';
-        } else {
-            const [friendship] = await db.promise().query(
-                `SELECT status, sender_id FROM friendships 
-                 WHERE (sender_id = ? AND receiver_id = ?) 
-                    OR (sender_id = ? AND receiver_id = ?) LIMIT 1`,
-                [viewerId, viewedUserId, viewedUserId, viewerId]
-            );
-
-            if (friendship.length > 0) {
-                const f = friendship[0];
-                if (f.status === 'accepted') {
-                    relationshipStatus = 'friends';
-                } else if (f.status === 'pending') {
-                    // Nếu viewer là người gửi -> 'request_sent', nếu viewer là người nhận -> 'request_received'
-                    relationshipStatus = (String(f.sender_id) === String(viewerId)) ? 'request_sent' : 'request_received';
-                } else if (f.status === 'blocked') {
-                    relationshipStatus = 'blocked';
-                }
-            }
-        }
-
-        // 3. Đếm tổng số bạn bè của chủ profile
-        const [countResults] = await db.promise().query(
-            `SELECT COUNT(*) AS total FROM friendships 
-             WHERE (sender_id = ? OR receiver_id = ?) AND status = 'accepted'`,
-            [viewedUserId, viewedUserId]
-        );
-        const friendCount = countResults[0].total;
-
-        // 4. LOGIC QUYỀN RIÊNG TƯ (Lock Profile)
-        const isSelf = relationshipStatus === 'self';
-        const isFriend = relationshipStatus === 'friends';
-        const isPrivate = user.privacy_setting == 0; // Giả sử 0 là riêng tư, 1 là công khai
-
-        // Nếu KHÔNG PHẢI chính mình VÀ KHÔNG PHẢI bạn bè VÀ chủ nhà để RIÊNG TƯ
-        if (!isSelf && !isFriend && isPrivate) {
-            return res.json({
-                success: true,
-                user: {
-                    id: user.id,
-                    full_name: user.full_name,
-                    avatar: user.avatar,
-                    cover_img: user.cover_img // Vẫn cho xem ảnh bìa cho đẹp giao diện
-                },
-                relationshipStatus,
-                friend_count: friendCount,
-                isLocked: true // Cờ hiệu để Frontend ẩn phần bài viết và thông tin chi tiết
-            });
-        }
-
-        // 5. Ngược lại: Trả về đầy đủ dữ liệu
-        res.json({
-            success: true,
-            user: user,
-            relationshipStatus,
-            friend_count: friendCount,
-            isLocked: false
-        });
-
-    } catch (err) {
-        console.error("Lỗi tại getUserProfile:", err);
-        res.status(500).json({ success: false, message: "Lỗi server khi lấy thông tin trang cá nhân." });
     }
 };
 
@@ -583,8 +466,10 @@ exports.updateProfile = async (req, res) => {
 
     if (!user_id) return res.status(400).json({ success: false, message: "Thiếu ID người dùng." });
 
+    console.log('[DEBUG] updateProfile incoming:', { user_id, bio, work_place, education, birthday, gender, location, user_info });
     // user_info nên được gửi lên từ Frontend dưới dạng chuỗi JSON hoặc Object
     const userInfoJson = typeof user_info === 'object' ? JSON.stringify(user_info) : user_info;
+    console.log('[DEBUG] Prepared userInfoJson:', userInfoJson);
 
     const sql = `
         UPDATE users SET 
@@ -698,7 +583,11 @@ exports.updateName = async (req, res) => {
         // 1. Kiểm tra mật khẩu hiện tại
         const [user] = await db.promise().query('SELECT password FROM users WHERE id = ?', [user_id]);
 
-        if (user.length === 0 || user[0].password !== password) {
+        if (user.length === 0) {
+            return res.status(401).json({ success: false, message: "Người dùng không tồn tại." });
+        }
+        const isMatch = await bcrypt.compare(password, user[0].password);
+        if (!isMatch) {
             return res.status(401).json({ success: false, message: "Mật khẩu xác nhận không chính xác." });
         }
 
@@ -785,6 +674,472 @@ exports.getShareTargets = async (req, res) => {
         res.status(500).json({ success: false });
     }
 };
+
+// ============================================
+// PRIVACY & PROFILE VISIBILITY SETTINGS
+// ============================================
+
+/**
+ * @route PUT /api/users/profile-privacy
+ * @desc Update profile privacy (public/private)
+ */
+exports.updateProfilePrivacy = async (req, res) => {
+    const { user_id, profile_privacy } = req.body;
+
+    if (!user_id || !['public', 'private'].includes(profile_privacy)) {
+        return res.status(400).json({
+            success: false,
+            message: "Invalid privacy setting"
+        });
+    }
+
+    try {
+        await db.promise().query(
+            'UPDATE users SET profile_privacy = ? WHERE id = ?',
+            [profile_privacy, user_id]
+        );
+
+        res.json({
+            success: true,
+            message: `Đã chuyển sang chế độ ${profile_privacy === 'public' ? 'Công khai' : 'Riêng tư'}`
+        });
+    } catch (err) {
+        console.error('Error updating profile privacy:', err);
+        res.status(500).json({ success: false, message: 'Lỗi cập nhật quyền riêng tư' });
+    }
+};
+
+/**
+ * @route PUT /api/users/profile-visibility
+ * @desc Update granular profile field visibility
+ */
+exports.updateProfileVisibility = async (req, res) => {
+    const { user_id, profile_visibility } = req.body;
+
+    if (!user_id || !profile_visibility) {
+        return res.status(400).json({
+            success: false,
+            message: "Missing required fields"
+        });
+    }
+
+    try {
+        const visibilityJson = typeof profile_visibility === 'object'
+            ? JSON.stringify(profile_visibility)
+            : profile_visibility;
+
+        await db.promise().query(
+            'UPDATE users SET profile_visibility = ? WHERE id = ?',
+            [visibilityJson, user_id]
+        );
+
+        res.json({
+            success: true,
+            message: 'Cập nhật cài đặt hiển thị thành công!'
+        });
+    } catch (err) {
+        console.error('Error updating profile visibility:', err);
+        res.status(500).json({ success: false, message: 'Lỗi cập nhật cài đặt' });
+    }
+};
+
+/**
+ * @route GET /api/users/:id/profile
+ * @desc Get user profile with privacy checks (ENHANCED VERSION)
+ */
+exports.getUserProfile = async (req, res) => {
+    const viewedUserId = req.params.id;
+    const viewerId = req.query.viewer_id;
+
+    if (!viewerId) {
+        return res.status(400).json({ success: false, message: "Missing viewer ID" });
+    }
+
+    try {
+        // 1. Get user data with privacy settings
+        const [userResults] = await db.promise().query(
+            `SELECT id, full_name, username, avatar, cover_img, bio, work_place, 
+                    education, birthday, gender, location, user_info, privacy_setting, created_at,
+                    profile_privacy, profile_visibility
+             FROM users WHERE id = ?`,
+            [viewedUserId]
+        );
+
+        if (userResults.length === 0) {
+            return res.status(404).json({ success: false, message: 'Người dùng không tồn tại' });
+        }
+
+        const user = userResults[0];
+        let relationshipStatus = 'not_friends';
+
+        // 2. Determine relationship
+        if (String(viewerId) === String(viewedUserId)) {
+            relationshipStatus = 'self';
+        } else {
+            const [friendship] = await db.promise().query(
+                `SELECT status, sender_id FROM friendships 
+                 WHERE (sender_id = ? AND receiver_id = ?) 
+                    OR (sender_id = ? AND receiver_id = ?) LIMIT 1`,
+                [viewerId, viewedUserId, viewedUserId, viewerId]
+            );
+
+            if (friendship.length > 0) {
+                const f = friendship[0];
+                if (f.status === 'accepted') {
+                    relationshipStatus = 'friends';
+                } else if (f.status === 'pending') {
+                    relationshipStatus = (String(f.sender_id) === String(viewerId))
+                        ? 'request_sent'
+                        : 'request_received';
+                } else if (f.status === 'blocked') {
+                    relationshipStatus = 'blocked';
+                }
+            }
+        }
+
+        // 3. Get friend count
+        const [countResults] = await db.promise().query(
+            `SELECT COUNT(*) AS total FROM friendships 
+             WHERE (sender_id = ? OR receiver_id = ?) AND status = 'accepted'`,
+            [viewedUserId, viewedUserId]
+        );
+        const friendCount = countResults[0].total;
+
+        // 4. Privacy checks
+        const isSelf = relationshipStatus === 'self';
+        const isFriend = relationshipStatus === 'friends';
+        const isPrivate = user.profile_privacy === 'private';
+
+        // Parse visibility settings
+        let visibility = {
+            show_bio: true,
+            show_location: true,
+            show_work: true,
+            show_school: true,
+            show_birthday: true,
+            show_gender: true
+        };
+
+        if (user.profile_visibility) {
+            try {
+                visibility = typeof user.profile_visibility === 'string'
+                    ? JSON.parse(user.profile_visibility)
+                    : user.profile_visibility;
+            } catch (e) {
+                console.error('Error parsing profile_visibility:', e);
+            }
+        } else if (user.user_info) {
+            // Nếu không có profile_visibility, thử dùng user_info (mới)
+            try {
+                const userInfo = typeof user.user_info === 'string'
+                    ? JSON.parse(user.user_info)
+                    : user.user_info;
+                // Map user_info keys (show_work, etc.) to visibility keys if needed
+                // Hiện tại các key đều là show_work, show_school, v.v. nên có thể gán đè
+                visibility = { ...visibility, ...userInfo };
+            } catch (e) {
+                console.error('Error parsing user_info for visibility:', e);
+            }
+        }
+
+        // 5. If private profile and not friend/self
+        if (!isSelf && !isFriend && isPrivate) {
+            return res.json({
+                success: true,
+                user: {
+                    id: user.id,
+                    full_name: user.full_name,
+                    avatar: user.avatar,
+                    cover_img: user.cover_img
+                },
+                relationshipStatus,
+                friend_count: friendCount,
+                isLocked: true,
+                visibility: {}
+            });
+        }
+
+        // 6. Apply granular visibility (even for friends if specific fields are hidden)
+        const filteredUser = { ...user };
+
+        if (!isSelf) {
+            if (!visibility.show_bio) filteredUser.bio = null;
+            if (!visibility.show_location) filteredUser.location = null;
+            if (!visibility.show_work) filteredUser.work_place = null;
+            if (!visibility.show_school) filteredUser.education = null;
+            if (!visibility.show_birthday) filteredUser.birthday = null;
+            if (!visibility.show_gender) filteredUser.gender = null;
+        }
+
+        // Remove privacy settings from response
+        delete filteredUser.profile_privacy;
+        delete filteredUser.profile_visibility;
+
+        res.json({
+            success: true,
+            user: filteredUser,
+            relationshipStatus,
+            friend_count: friendCount,
+            isLocked: false,
+            visibility: isSelf ? visibility : {} // Only send visibility to self
+        });
+
+    } catch (err) {
+        console.error("Error in getUserProfileEnhanced:", err);
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+
+// ============================================
+// XI. ARCHIVE SYSTEM (FAVORITES, HIDDEN, DELETED)
+// ============================================
+
+/**
+ * @desc Get favorite posts categorized by type
+ */
+exports.getFavorites = async (req, res) => {
+    const { user_id, category } = req.query;
+    if (!user_id) return res.status(400).json({ success: false, message: 'Missing user_id' });
+
+    try {
+        let sql = `
+            SELECT 
+                p.id, p.content, p.media_url, p.created_at, p.group_id,
+                p.user_id, u.full_name, u.avatar, u.gender,
+                g.name AS group_name,
+                fp.created_at AS favorited_at
+            FROM favorite_posts fp
+            JOIN posts p ON fp.post_id = p.id
+            JOIN users u ON p.user_id = u.id
+            LEFT JOIN groups g ON p.group_id = g.id
+            WHERE fp.user_id = ?
+            AND p.deleted_at IS NULL
+        `;
+
+        const params = [user_id];
+        if (category === 'personal') sql += ' AND p.group_id IS NULL';
+        else if (category === 'group') sql += ' AND p.group_id IS NOT NULL';
+
+        sql += ' ORDER BY fp.created_at DESC';
+        const [posts] = await db.promise().query(sql, params);
+        res.json({ success: true, posts });
+    } catch (err) {
+        console.error('Error fetching favorites:', err);
+        res.status(500).json({ success: false, message: 'Lỗi tải bài viết yêu thích' });
+    }
+};
+
+/**
+ * @desc Get hidden posts (within 30 days)
+ */
+exports.getHiddenPosts = async (req, res) => {
+    const { user_id, category } = req.query;
+    if (!user_id) return res.status(400).json({ success: false, message: 'Missing user_id' });
+
+    try {
+        let sql = `
+            SELECT 
+                p.id, p.content, p.media_url, p.created_at, p.group_id,
+                p.user_id, u.full_name, u.avatar, u.gender,
+                g.name AS group_name,
+                hp.hidden_at,
+                DATEDIFF(DATE_ADD(hp.hidden_at, INTERVAL 30 DAY), NOW()) AS days_left
+            FROM hidden_posts_by_users hp
+            JOIN posts p ON hp.post_id = p.id
+            JOIN users u ON p.user_id = u.id
+            LEFT JOIN groups g ON p.group_id = g.id
+            WHERE hp.user_id = ?
+            AND p.deleted_at IS NULL
+            AND hp.hidden_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+        `;
+
+        const params = [user_id];
+        if (category === 'personal') sql += ' AND p.group_id IS NULL';
+        else if (category === 'group') sql += ' AND p.group_id IS NOT NULL';
+
+        sql += ' ORDER BY hp.hidden_at DESC';
+        const [posts] = await db.promise().query(sql, params);
+        res.json({ success: true, posts });
+    } catch (err) {
+        console.error('Error fetching hidden posts:', err);
+        res.status(500).json({ success: false, message: 'Lỗi tải bài viết đã ẩn' });
+    }
+};
+
+/**
+ * @desc Get deleted posts (within 30 days)
+ */
+exports.getArchivedPosts = async (req, res) => {
+    const { user_id, category } = req.query;
+    if (!user_id) return res.status(400).json({ success: false, message: 'Missing user_id' });
+
+    try {
+        let sql = `
+            SELECT 
+                p.id, p.content, p.media_url, p.created_at, p.group_id,
+                p.user_id, u.full_name, u.avatar, u.gender,
+                g.name AS group_name,
+                p.deleted_at,
+                DATEDIFF(DATE_ADD(p.deleted_at, INTERVAL 30 DAY), NOW()) AS days_left
+            FROM posts p
+            JOIN users u ON p.user_id = u.id
+            LEFT JOIN groups g ON p.group_id = g.id
+            WHERE p.deleted_by = ?
+            AND p.deleted_at IS NOT NULL
+            AND p.deleted_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+        `;
+
+        const params = [user_id];
+        if (category === 'personal') sql += ' AND p.group_id IS NULL';
+        else if (category === 'group') sql += ' AND p.group_id IS NOT NULL';
+
+        sql += ' ORDER BY p.deleted_at DESC';
+        const [posts] = await db.promise().query(sql, params);
+        res.json({ success: true, posts });
+    } catch (err) {
+        console.error('Error fetching archived posts:', err);
+        res.status(500).json({ success: false, message: 'Lỗi tải kho lưu trữ' });
+    }
+};
+
+/**
+ * @desc Remove post from favorites
+ */
+exports.unfavoritePost = async (req, res) => {
+    const { postId } = req.params;
+    const { user_id } = req.query;
+    if (!user_id) return res.status(400).json({ success: false, message: 'Missing user_id' });
+
+    try {
+        const [result] = await db.promise().query(
+            'DELETE FROM favorite_posts WHERE post_id = ? AND user_id = ?',
+            [postId, user_id]
+        );
+        if (result.affectedRows > 0) res.json({ success: true, message: 'Đã hủy yêu thích' });
+        else res.status(404).json({ success: false, message: 'Không tìm thấy bài viết yêu thích' });
+    } catch (err) {
+        console.error('Error unfavoriting:', err);
+        res.status(500).json({ success: false, message: 'Lỗi hủy yêu thích' });
+    }
+};
+
+/**
+ * @desc Get deleted posts (from archived_posts table)
+ */
+exports.getArchivedPosts = async (req, res) => {
+    const { user_id, category } = req.query;
+    if (!user_id) return res.status(400).json({ success: false, message: 'Missing user_id' });
+
+    try {
+        let sql = `
+            SELECT 
+                ap.original_id as id, ap.content, ap.media_url, ap.created_at, ap.group_id,
+                ap.user_id, u.full_name, u.avatar, u.gender,
+                g.name AS group_name,
+                ap.archived_at as deleted_at,
+                DATEDIFF(DATE_ADD(ap.archived_at, INTERVAL 30 DAY), NOW()) AS days_left
+            FROM archived_posts ap
+            JOIN users u ON ap.user_id = u.id
+            LEFT JOIN groups g ON ap.group_id = g.id
+            WHERE ap.deleted_by = ?
+            AND ap.archived_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+        `;
+
+        const params = [user_id];
+        if (category === 'personal') sql += ' AND ap.group_id IS NULL';
+        else if (category === 'group') sql += ' AND ap.group_id IS NOT NULL';
+
+        sql += ' ORDER BY ap.archived_at DESC';
+        const [posts] = await db.promise().query(sql, params);
+        res.json({ success: true, posts });
+    } catch (err) {
+        console.error('Error fetching archived posts:', err);
+        res.status(500).json({ success: false, message: 'Lỗi tải kho lưu trữ' });
+    }
+};
+
+/**
+ * @desc Unhide a post
+ */
+exports.unhidePost = async (req, res) => {
+    const { postId } = req.params;
+    const { user_id } = req.query;
+    if (!user_id) return res.status(400).json({ success: false, message: 'Missing user_id' });
+
+    try {
+        const [result] = await db.promise().query(
+            'DELETE FROM hidden_posts_by_users WHERE post_id = ? AND user_id = ?',
+            [postId, user_id]
+        );
+        if (result.affectedRows > 0) res.json({ success: true, message: 'Đã hủy ẩn bài viết' });
+        else res.status(404).json({ success: false, message: 'Không tìm thấy bài viết đã ẩn' });
+    } catch (err) {
+        console.error('Error unhiding:', err);
+        res.status(500).json({ success: false, message: 'Lỗi hủy ẩn bài viết' });
+    }
+};
+
+/**
+ * @desc Restore a deleted post from archived_posts
+ */
+exports.restorePost = async (req, res) => {
+    const { postId } = req.params;
+    const { user_id } = req.query;
+    if (!user_id) return res.status(400).json({ success: false, message: 'Missing user_id' });
+
+    try {
+        // 1. Lấy dữ liệu từ bảng lưu trữ
+        const [archived] = await db.promise().query(
+            'SELECT * FROM archived_posts WHERE original_id = ? AND deleted_by = ?',
+            [postId, user_id]
+        );
+
+        if (archived.length === 0) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy bài viết để khôi phục' });
+        }
+
+        const ap = archived[0];
+
+        // 2. Chuyển ngược lại bảng posts (khôi phục id gốc)
+        await db.promise().query(
+            `INSERT INTO posts (id, user_id, content, media_url, group_id, visibility, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [ap.original_id, ap.user_id, ap.content, ap.media_url, ap.group_id, ap.visibility, ap.created_at]
+        );
+
+        // 3. Xóa khỏi bảng lưu trữ
+        await db.promise().query('DELETE FROM archived_posts WHERE original_id = ?', [postId]);
+
+        res.json({ success: true, message: 'Đã khôi phục bài viết thành công' });
+    } catch (err) {
+        console.error('Error restoring post detailed:', err);
+        res.status(500).json({ success: false, message: 'Lỗi khôi phục bài viết: ' + err.message });
+    }
+};
+
+/**
+ * @desc Permanently delete a post from archived_posts
+ */
+exports.permanentDeletePost = async (req, res) => {
+    const { postId } = req.params;
+    const { user_id } = req.query;
+    if (!user_id) return res.status(400).json({ success: false, message: 'Missing user_id' });
+
+    try {
+        const [result] = await db.promise().query(
+            'DELETE FROM archived_posts WHERE original_id = ? AND deleted_by = ?',
+            [postId, user_id]
+        );
+
+        if (result.affectedRows > 0) res.json({ success: true, message: 'Đã xóa vĩnh viễn bài viết' });
+        else res.status(404).json({ success: false, message: 'Không tìm thấy bài viết trong kho lưu trữ' });
+    } catch (err) {
+        console.error('Error permanently deleting:', err);
+        res.status(500).json({ success: false, message: 'Lỗi xóa bài viết' });
+    }
+};
+
 // ============================================
 // EXPORTS
 // ============================================

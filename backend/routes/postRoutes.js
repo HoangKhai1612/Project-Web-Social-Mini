@@ -13,10 +13,10 @@ router.post('/comment/react', postController.reactToComment); // [NEW] Moved up 
 router.get('/', postController.getPosts);
 router.post('/', uploadMiddleware, postController.createPost);
 
-// --- 3. KHO LƯU TRỮ (ARCHIVE) ---
-router.get('/archive', postController.getArchivedPosts);
-router.post('/:postId/restore', postController.restorePost);
-router.delete('/:postId/permanent', postController.permanentDeletePost);
+// --- 3. KHO LƯU TRỮ (Đã chuyển sang userRoutes) ---
+
+// Route xem chi tiết bài đăng (Phải đặt SAU /search, /favorites nhưng TRƯỚC các route con khác nếu cần, hoặc đặt ở group dynamic)
+router.get('/:postId', postController.getPostById);
 
 // Route check phải nằm trên các thao tác post chi tiết để tránh bị bắt bởi :postId
 router.get('/:postId/check', postController.checkPostExists);
@@ -26,7 +26,7 @@ router.post('/:postId/comment', postController.addComment);
 router.post('/:postId/react', postController.reactToPost);
 router.post('/:postId/share', postController.sharePost);
 
-router.put('/:postId', postController.updatePost);
+router.put('/:postId', uploadMiddleware, postController.updatePost);
 router.put('/:postId/visibility', postController.toggleVisibility);
 router.post('/:postId/favorite', postController.toggleFavorite);
 router.post('/:postId/hide', postController.togglePersonalHide); // Đổi tên hàm cho khớp controller mới

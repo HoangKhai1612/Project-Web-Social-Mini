@@ -1,16 +1,19 @@
-/* frontend/css/style.css */
-
-/* --- 1. HỆ THỐNG BIẾN MÀU SẮC (TƯƠNG PHẢN CAO & ĐỒNG NHẤT) --- */
 :root {
     /* --- Light Mode (Giao diện sáng) --- */
-    --bg-color: #f8fafc;            /* Nền chính xám cực nhẹ */
-    --surface-color: #ffffff;       /* Nền các khối nội dung trắng */
-    --text-main: #1e293b;           /* Chữ chính xanh đen */
-    --text-muted: #64748b;          /* Chữ phụ xám */
-    --border-color: #e2e8f0;        /* Viền sáng */
-    --primary-blue: #2563eb;        /* Xanh thương hiệu */
+    --bg-color: #f8fafc;
+    /* Nền chính xám cực nhẹ */
+    --surface-color: #ffffff;
+    /* Nền các khối nội dung trắng */
+    --text-main: #1e293b;
+    /* Chữ chính xanh đen */
+    --text-muted: #64748b;
+    /* Chữ phụ xám */
+    --border-color: #e2e8f0;
+    /* Viền sáng */
+    --primary-blue: #2563eb;
+    /* Xanh thương hiệu */
     --primary-light: #dbeafe;
-    
+
     /* Chat Bubbles - Light */
     --msg-bg-self: #2563eb;
     --msg-text-self: #ffffff;
@@ -24,13 +27,19 @@
 
 /* --- DARK MODE (GIAO DIỆN TỐI - FIX LỖI NỀN TRẮNG) --- */
 body.dark-mode {
-    --bg-color: #020617;            /* Đen xanh sâu cho toàn bộ nền */
-    --surface-color: #0f172a;       /* Xanh đen nhạt hơn cho Card/Sidebar */
-    --text-main: #f1f5f9;           /* Chữ trắng xám */
-    --text-muted: #94a3b8;          /* Chữ phụ xám nhạt */
-    --border-color: #1e293b;        /* Viền tối */
-    --primary-blue: #3b82f6;        /* Xanh dương sáng hơn trong nền tối */
-    
+    --bg-color: #020617;
+    /* Đen xanh sâu cho toàn bộ nền */
+    --surface-color: #0f172a;
+    /* Xanh đen nhạt hơn cho Card/Sidebar */
+    --text-main: #f1f5f9;
+    /* Chữ trắng xám */
+    --text-muted: #94a3b8;
+    /* Chữ phụ xám nhạt */
+    --border-color: #1e293b;
+    /* Viền tối */
+    --primary-blue: #3b82f6;
+    /* Xanh dương sáng hơn trong nền tối */
+
     /* Chat Bubbles - Dark */
     --msg-bg-self: #3b82f6;
     --msg-bg-other: #1e293b;
@@ -45,10 +54,12 @@ body.dark-mode {
     padding: 0;
 }
 
-html, body {
+html,
+body {
     height: 100%;
     width: 100%;
-    background-color: var(--bg-color) !important; /* Ép màu nền chính */
+    background-color: var(--bg-color) !important;
+    /* Ép màu nền chính */
 }
 
 body {
@@ -56,7 +67,8 @@ body {
     transition: background-color 0.3s ease, color 0.3s ease;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
-    overflow: hidden; /* Fix scroll cho main layout */
+    overflow: hidden;
+    /* Fix scroll cho main layout */
 }
 
 /* --- 3. ĐỊNH DẠNG LAYOUT (XỬ LÝ VÙNG TRẮNG) --- */
@@ -68,10 +80,10 @@ body {
 }
 
 /* Ép màu nền cho tất cả các container lớn */
-#mainLayout, 
-#mainContent, 
-.main-content-container, 
-#chatSidebar, 
+#mainLayout,
+#mainContent,
+.main-content-container,
+#chatSidebar,
 header#mainHeader {
     background-color: var(--bg-color) !important;
     color: var(--text-main);
@@ -97,12 +109,15 @@ header#mainHeader {
 
 /* --- 4. TIỆN ÍCH DÙNG CHUNG (HELPER CLASSES) --- */
 /* Ép màu cho các khối nội dung trắng (Card) */
-.surface, .bg-white {
+.surface,
+.bg-white {
     background-color: var(--surface-color) !important;
     color: var(--text-main) !important;
 }
 
-.border-base, .border, .border-slate-100 {
+.border-base,
+.border,
+.border-slate-100 {
     border-color: var(--border-color) !important;
 }
 
@@ -116,7 +131,11 @@ header#mainHeader {
     cursor: pointer;
     transition: all 0.2s;
 }
-.btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+
+.btn-primary:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
 
 /* --- 5. HỆ THỐNG TIN NHẮN (CHAT BUBBLES) --- */
 #messageList {
@@ -157,7 +176,9 @@ header#mainHeader {
 }
 
 /* --- 6. INPUTS & FORM (XỬ LÝ CHỮ ĐEN TRONG NỀN TỐI) --- */
-input, select, textarea {
+input,
+select,
+textarea {
     background-color: var(--surface-color);
     color: var(--text-main);
     border: 1.5px solid var(--border-color);
@@ -167,11 +188,13 @@ input, select, textarea {
 }
 
 /* Force màu cho Dark Mode Input */
-.dark-mode input, 
-.dark-mode select, 
+.dark-mode input,
+.dark-mode select,
 .dark-mode textarea {
-    background-color: #1e293b !important; /* Màu nền input tối */
-    color: #ffffff !important;           /* Chữ trắng */
+    background-color: #1e293b !important;
+    /* Màu nền input tối */
+    color: #ffffff !important;
+    /* Chữ trắng */
     border-color: #334155 !important;
 }
 
@@ -190,40 +213,89 @@ input, select, textarea {
 }
 
 /* --- 8. THANH KÉO (RESIZER) --- */
-.resizer, #splitter {
+.resizer,
+#splitter {
     width: 3px;
     cursor: col-resize;
     background-color: var(--border-color) !important;
 }
-.resizer:hover { background-color: var(--primary-blue) !important; }
+
+.resizer:hover {
+    background-color: var(--primary-blue) !important;
+}
 
 /* --- 9. CUSTOM SCROLLBAR --- */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
 ::-webkit-scrollbar-thumb {
     background: var(--text-muted);
     border-radius: 10px;
     opacity: 0.5;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--primary-blue); }
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-blue);
+}
 
 /* --- 10. ANIMATIONS --- */
 @keyframes slideUp {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes zoomIn {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 @keyframes scaleIn {
-    from { opacity: 0; transform: scale(0.8); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
+
 .animate-scale-in {
     animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out forwards;
 }
 
 /* --- 11. MOBILE RESPONSIVE --- */
@@ -235,7 +307,40 @@ input, select, textarea {
         left: 0;
         transition: transform 0.3s ease;
     }
-    .chat-sidebar.hidden-mobile { transform: translateX(-100%); }
-    .main-content-container { min-width: 100%; }
-    .resizer { display: none; }
+
+    .chat-sidebar.hidden-mobile {
+        transform: translateX(-100%);
+    }
+
+    .main-content-container {
+        min-width: 100%;
+    }
+
+    .resizer {
+        display: none;
+    }
+}
+
+/* --- 12. CUSTOM ANIMATIONS & HIGHLIGHTS (Merged from custom.css) --- */
+@keyframes highlight-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+        border-color: #3b82f6;
+    }
+
+    70% {
+        box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+        border-color: #3b82f6;
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    }
+}
+
+.highlight-post {
+    animation: highlight-pulse 2s cubic-bezier(0.4, 0, 0.6, 1);
+    border: 2px solid #3b82f6 !important;
+    /* Blue border */
+    transition: all 0.5s ease;
 }

@@ -21,10 +21,24 @@ router.put('/update-email', userController.updateEmail);
 router.put('/update-name', userController.updateName);
 router.post('/upload-image', upload.single('image'), userController.uploadProfileImage);
 
+// --- PRIVACY & VISIBILITY SETTINGS ---
+router.put('/profile-privacy', userController.updateProfilePrivacy);
+router.put('/profile-visibility', userController.updateProfileVisibility);
+
+
 // --- 3. QUAN HỆ BẠN BÈ ---
 router.post('/friendship', userController.manageFriendship);
 
-// --- 4. ROUTE CÓ THAM SỐ (DYNAMIC) - ĐẶT DƯỚI CÙNG ---
+// --- 4. ARCHIVE & ACTIVITY (MỚI) ---
+router.get('/archive/favorites', userController.getFavorites);
+router.get('/archive/hidden', userController.getHiddenPosts);
+router.get('/archive/deleted', userController.getArchivedPosts);
+router.delete('/archive/favorites/:postId', userController.unfavoritePost);
+router.post('/archive/unhide/:postId', userController.unhidePost);
+router.post('/archive/restore/:postId', userController.restorePost);
+router.delete('/archive/permanent/:postId', userController.permanentDeletePost);
+
+// --- 5. ROUTE CÓ THAM SỐ (DYNAMIC) - ĐẶT DƯỚI CÙNG ---
 router.get('/:userId/posts', userController.getUserPosts);
 router.get('/:userId/friends-list', userController.getFriendList);
 router.get('/:id', userController.getUserProfile); // Route này phải luôn ở cuối cùng

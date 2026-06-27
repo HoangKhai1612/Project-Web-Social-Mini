@@ -5,7 +5,7 @@ const db = require('../config/database');
  * @desc Lấy 10 lịch sử tìm kiếm gần nhất của user
  */
 exports.getHistory = async (req, res) => {
-    const { userId, source = 'global' } = req.query;
+    const { userId, source = 'global' } = req.query;// Lấy userId và source từ query
     if (!userId) return res.status(400).json({ success: false, message: "Thiếu User ID" });
 
     try {
@@ -13,7 +13,7 @@ exports.getHistory = async (req, res) => {
         const [history] = await db.promise().query(
             'SELECT id, item_id, item_type, item_name, source, created_at FROM search_history WHERE user_id = ? AND source = ? ORDER BY created_at DESC LIMIT 10',
             [userId, source]
-        );
+        );// Lấy lịch sử theo đúng source yêu cầu
         res.json({ success: true, history });
     } catch (err) {
         console.error("Error fetching search history:", err);
@@ -122,3 +122,4 @@ exports.clearHistory = async (req, res) => {
         res.status(500).json({ success: false, message: "Lỗi server" });
     }
 };
+module.exports = exports;

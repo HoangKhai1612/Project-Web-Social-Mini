@@ -50,7 +50,7 @@ const io = new Server(server, {
     }
 });
 
-// [NEW] Helper để Controller gọi khi User đổi Setting
+// Helper để Controller gọi khi User đổi Setting
 io.handlePrivacyChange = (userId, showOnline) => {
     const uid = String(userId);
     if (onlineUsers.has(uid)) {
@@ -86,7 +86,7 @@ const checkMaintenance = require('./middleware/maintenanceMiddleware'); // [NEW]
 // --- 3. Định tuyến API ---
 app.use(checkMaintenance); // Apply global maintenance check
 app.use('/api', mainRouter);
-app.use('/api', adminRoutes); // [NEW] Register Admin Routes
+app.use('/api', adminRoutes); // Register Admin Routes
 
 app.get('/', (req, res) => {
     res.send('<h1>SocialVN Backend đang chạy OK!</h1>');
@@ -124,7 +124,7 @@ io.on('connection', (socket) => {
                 // io.emit('user_status_changed', { userId, status: 'online' }); // [REMOVED]
                 notifyFriendsStatus(userId, 'online');
             }
-            // [NEW] Update Admin Dashboard Realtime
+            // Update Admin Dashboard Realtime
             io.emit('admin_online_count', onlineUsers.size);
         } catch (err) {
             console.error('Lỗi khi register_user:', err);
@@ -330,8 +330,8 @@ server.listen(PORT, () => {
     console.log(`📡 Socket.io (Media & Reply) đã sẵn sàng.`);
     console.log(`-----------------------------------------------`);
 
-    // Chạy dọn dẹp bài viết cũ khi khởi động
-    postController.autoCleanup().catch(err => console.error("AutoCleanup Error:", err));
-    // [NEW] Dọn dẹp báo cáo cũ (đã bỏ qua > 30 ngày)
-    adminController.cleanupOldReports().catch(err => console.error("ReportCleanup Error:", err));
+    // [NEW] Khởi động Master Cleanup (Dọn dẹp hệ thống tự động hóa)
+    const { runCleanup } = require('./jobs/cleanupSystem');
+    // Chạy một lần khi khởi động server
+    runCleanup().catch(err => console.error("Initial Cleanup Error:", err));
 });

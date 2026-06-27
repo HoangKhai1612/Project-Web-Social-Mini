@@ -1,6 +1,6 @@
 // frontend/js/modules/group.js
 
-import { API_URL, showToast, defaultConfig, getAvatarUrl, apiFetch, getAvatarWithStatusHtml } from '../main.js';
+import { showToast, defaultConfig, getAvatarUrl, apiFetch, getAvatarWithStatusHtml, API_URL } from '../main.js';
 
 const getConfig = () => window.elementSdk?.config || defaultConfig;
 
@@ -165,8 +165,7 @@ export async function renderGroupDetail(groupId) {
         window.currentGroupMembershipStatus = status;
 
         // Xác định quyền xem nội dung: Approved members only
-        const canViewContent = status === 'creator' || status === 'admin' || status === 'member';
-
+        const canViewContent = status === 'creator' || status === 'super_admin' || status === 'admin' || status === 'member';
 
         // Render Group Shell
         main.innerHTML = `
@@ -180,7 +179,7 @@ export async function renderGroupDetail(groupId) {
                          id="groupCoverImage"
                          onerror="this.src='images/default_group.png'">
                     
-                    ${(status === 'creator' || status === 'admin') ? `
+                    ${(status === 'creator' || status === 'super_admin') ? `
                         <button onclick="window.GroupModule.triggerAvatarUpload('${group.id}')" 
                                 class="absolute bottom-4 right-4 bg-white/90 text-gray-700 p-2 rounded-full shadow-lg hover:bg-white transition opacity-0 group-hover/cover:opacity-100 dark:bg-slate-800 dark:text-white">
                             📷 Thay đổi ảnh
@@ -209,7 +208,7 @@ export async function renderGroupDetail(groupId) {
                     </div>
                     
                     <div class="w-1/4 space-y-4">
-                        ${status === 'creator' || status === 'admin' ? renderAdminSidebar(group.id, group.pending_count, status, group.name) : ''}
+                        ${status === 'creator' || status === 'super_admin' || status === 'admin' ? renderAdminSidebar(group.id, group.pending_count, status, group.name) : ''}
                         ${renderGroupInfoSidebar(group)}
                     </div>
                 </div>
@@ -230,17 +229,16 @@ export async function renderGroupDetail(groupId) {
 
 /** Helper: Form đăng bài Group */
 function renderGroupPostForm(groupId, status, primaryColor) {
-    if (status === 'member' || status === 'creator' || status === 'admin') {
+    if (status === 'member' || status === 'creator' || status === 'super_admin' || status === 'admin') {
         return `
             <div class="surface rounded-lg shadow p-3 mb-4 border border-base bg-white dark:bg-slate-900 dark:border-slate-800">
                 <button onclick="window.GroupModule.showGroupCreatePostModal('${groupId}')"
                         class="w-full p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-left text-slate-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700 transition">
-                    Đăng bài trong ${status === 'creator' ? 'nhóm quản lý' : 'nhóm'}...
+                    Đăng bài trong ${status === 'creator' || status === 'super_admin' ? 'nhóm quản lý' : 'nhóm'}...
                 </button>
             </div>
         `;
     }
-    return '';
 }
 
 /* =======================
@@ -300,8 +298,8 @@ function renderAdminSidebar(groupId, pendingCount, status, currentName) {
             <h4 class="font-bold mb-3 text-slate-800 dark:text-white">🛠️ Quản lý</h4>
     `;
 
-    // Duyệt thành viên và Xem thành viên (Chung cho Creator và Admin)
-    if (status === 'creator' || status === 'admin') {
+    // Duyệt thành viên và Xem thành viên (Chung cho Creator, Super Admin và Admin)
+    if (status === 'creator' || status === 'super_admin' || status === 'admin') {
         html += `
             <div onclick="window.GroupModule.renderGroupMembers('${groupId}')"
                  class="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded cursor-pointer flex justify-between items-center text-slate-700 dark:text-slate-300 transition">
@@ -315,15 +313,15 @@ function renderAdminSidebar(groupId, pendingCount, status, currentName) {
         `;
     }
 
-    // Chức năng độc quyền cho CREATOR (Chủ Page)
-    if (status === 'creator') {
+    // Chức năng độc quyền cho Super Admin (Chủ Page) - Tạm thời hỗ trợ cả 'creator' status nếu server trả về
+    if (status === 'creator' || status === 'super_admin') {
         html += `
             <div onclick="window.GroupModule.renameGroup('${groupId}', '${currentName || ''}')" 
                  class="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 rounded cursor-pointer transition">
-                 ✏️ Đổi tên Page/Group
+                 ✏️ Đổi tên Page
             </div>
             <div onclick="window.GroupModule.deleteGroup('${groupId}')" class="p-2 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 rounded cursor-pointer transition">
-                ❌ Xóa Group/Page
+                ❌ Xóa Page/Group
             </div>
         `;
     }
@@ -351,6 +349,7 @@ function renderGroupActions(groupId, status, primaryColor, groupName) {
 
     switch (status) {
         case 'creator':
+        case 'super_admin':
         case 'admin':
         case 'member':
             html += `
@@ -382,26 +381,138 @@ function renderGroupActions(groupId, status, primaryColor, groupName) {
 // 3. LOGIC TƯƠNG TÁC GROUP
 // ============================================
 
+
+let selectedMembers = [];
+let groupCreationFriendsList = [];
+
 /** Hiển thị modal tạo Group */
 export function showCreateGroupModal() {
+    selectedMembers = [];
     const modalBody = document.getElementById('modalBody');
     if (!modalBody) return;
 
     modalBody.innerHTML = `
         <div class="p-4">
             <h3 class="font-bold text-lg mb-4">Tạo Page/Group mới</h3>
-            <input type="text" id="groupName" placeholder="Tên Page/Group" class="w-full p-2 border rounded mb-3">
-            <textarea id="groupDescription" placeholder="Mô tả" rows="3" class="w-full p-2 border rounded mb-4"></textarea>
+            <input type="text" id="groupName" placeholder="Tên Page/Group" class="w-full p-2 border rounded mb-3 bg-gray-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
+            <textarea id="groupDescription" placeholder="Mô tả" rows="3" class="w-full p-2 border rounded mb-4 bg-gray-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white"></textarea>
+            
+            <div class="relative mb-3">
+                 <input type="text" id="groupMemberSearchInput" placeholder="Tìm kiếm bạn bè mời vào nhóm..." 
+                        onkeyup="window.GroupModule.handleGroupFriendSearch(this.value)"
+                        class="w-full p-2 pl-8 border rounded outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
+                 <span class="absolute left-2 top-2 text-gray-400">🔍</span>
+            </div>
+
+            <div id="selectedContainer" class="flex flex-wrap gap-2 p-2 border border-dashed border-gray-300 dark:border-slate-600 rounded min-h-[40px] mb-3 bg-gray-50 dark:bg-slate-800 text-xs text-gray-400">
+                Chưa chọn thành viên nào...
+            </div>
+
+            <div class="text-xs font-bold text-gray-500 uppercase mb-2">Danh sách bạn bè</div>
+            <div id="friendInviteList" class="max-h-48 overflow-y-auto border border-gray-200 dark:border-slate-700 rounded divide-y dark:divide-slate-700 custom-scrollbar mb-4 bg-white dark:bg-slate-800">
+                <div class="p-4 text-center text-gray-400 text-sm">Đang tải danh sách...</div>
+            </div>
             
             <button onclick="window.GroupModule.submitCreateGroup()" 
                     id="submitGroupBtn"
                     class="btn-primary w-full p-2 text-white rounded"
                     style="background:${getConfig().primaryAction}">
-                Tạo
+                Tạo Page/Group
             </button>
         </div>
     `;
     document.getElementById('appModal')?.classList.remove('hidden');
+    loadFriendsForGroupCreation();
+}
+
+/** Load friend list for group creation */
+async function loadFriendsForGroupCreation() {
+    try {
+        const res = await apiFetch(`/users/friends?user_id=${window.currentUser.userId}`);
+        if (!res || !res.ok) throw new Error("Failed to load");
+        groupCreationFriendsList = await res.json();
+        renderGroupCreationFriendList(groupCreationFriendsList);
+    } catch (e) {
+        const listEl = document.getElementById('friendInviteList');
+        if (listEl) listEl.innerHTML = `<div class="p-4 text-center text-red-400 text-sm">Lỗi tải danh sách bạn bè.</div>`;
+    }
+}
+
+/** Render friend list with selection state */
+function renderGroupCreationFriendList(list) {
+    const listEl = document.getElementById('friendInviteList');
+    if (!listEl) return;
+
+    if (!list || list.length === 0) {
+        listEl.innerHTML = `<div class="p-8 text-center text-slate-400 text-sm italic">Không tìm thấy bạn bè phù hợp.</div>`;
+        return;
+    }
+
+    listEl.innerHTML = list.map(f => {
+        const isSelected = selectedMembers.some(m => m.id == f.id);
+        const displayAvatar = f.avatar_url || f.avatar;
+
+        return `
+            <div onclick="window.GroupModule.toggleSelectFriend('${f.id}', '${f.full_name}', '${displayAvatar || ''}')" 
+                 class="flex items-center gap-3 p-2 cursor-pointer transition hover:bg-blue-50 dark:hover:bg-slate-700 ${isSelected ? 'bg-blue-50 dark:bg-slate-700/50' : ''}">
+                
+                <div class="relative">
+                    <img src="${getAvatarUrl(displayAvatar)}" class="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-slate-600">
+                    ${isSelected ? `
+                        <div class="absolute -right-1 -bottom-1 bg-green-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] border border-white dark:border-slate-800">✓</div>
+                    ` : ''}
+                </div>
+
+                <div class="flex-1">
+                    <div class="text-sm font-bold text-slate-700 dark:text-slate-200">${f.full_name}</div>
+                    ${f.username ? `<div class="text-xs text-slate-500">@${f.username}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+export function handleGroupFriendSearch(query) {
+    if (!query) {
+        renderGroupCreationFriendList(groupCreationFriendsList);
+        return;
+    }
+    const filtered = groupCreationFriendsList.filter(f =>
+        f.full_name.toLowerCase().includes(query.toLowerCase()) ||
+        (f.username && f.username.toLowerCase().includes(query.toLowerCase()))
+    );
+    renderGroupCreationFriendList(filtered);
+}
+
+export function toggleSelectFriend(id, name, avatar) {
+    const index = selectedMembers.findIndex(m => m.id == id);
+    if (index > -1) {
+        selectedMembers.splice(index, 1);
+    } else {
+        selectedMembers.push({ id, name, avatar });
+    }
+
+    // Re-render list to show selection state
+    const searchInput = document.getElementById('groupMemberSearchInput');
+    if (searchInput && searchInput.value) {
+        handleGroupFriendSearch(searchInput.value);
+    } else {
+        renderGroupCreationFriendList(groupCreationFriendsList);
+    }
+
+    // Update selected container
+    const container = document.getElementById('selectedContainer');
+    if (selectedMembers.length === 0) {
+        container.innerHTML = 'Chưa chọn thành viên nào...';
+    } else {
+        container.innerHTML = selectedMembers.map(m => `
+            <div class="flex items-center gap-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full text-xs">
+                <img src="${getAvatarUrl(m.avatar)}" class="w-4 h-4 rounded-full">
+                <span>${m.name}</span>
+                <span onclick="event.stopPropagation(); window.GroupModule.toggleSelectFriend('${m.id}')" class="cursor-pointer hover:text-red-500 ml-1">×</span>
+            </div>
+        `).join('');
+    }
 }
 
 /** [NEW] Xử lý submit tạo Group */
@@ -417,6 +528,8 @@ export async function submitCreateGroup() {
     btn.disabled = true;
     btn.textContent = 'Đang tạo...';
 
+    const memberIds = selectedMembers.map(m => m.id);
+
     try {
         const res = await apiFetch(`/groups`, {
             method: 'POST',
@@ -424,7 +537,8 @@ export async function submitCreateGroup() {
             body: JSON.stringify({
                 name,
                 description,
-                creator_id: window.currentUser.userId
+                creator_id: window.currentUser.userId,
+                members: memberIds
             })
         });
         if (!res) return;
@@ -443,7 +557,7 @@ export async function submitCreateGroup() {
         showToast('Lỗi kết nối server.', 'error');
     }
     btn.disabled = false;
-    btn.textContent = 'Tạo';
+    btn.textContent = 'Tạo Page/Group';
 }
 
 /** Gửi yêu cầu tham gia/Rời Group */
@@ -643,35 +757,55 @@ export async function renderGroupMembers(groupId) {
 
         const members = data.members || [];
         const creatorId = data.creator_id;
-        const isCurrentUserCreator = String(adminId) === String(creatorId);
+        const isSuperAdmin = window.currentGroupMembershipStatus === 'super_admin' || window.currentGroupMembershipStatus === 'creator';
+        const isAdmin = window.currentGroupMembershipStatus === 'admin';
 
         const membersHtml = members.map(member => {
-            const isCreator = String(member.user_id) === String(creatorId);
             const isSelf = String(member.user_id) === String(adminId);
+            const targetRole = member.role; // 'admin', 'member', 'super_admin'
 
             let actionsHtml = '';
 
-            // Chỉ Creator mới có thể chuyển quyền Admin/Xóa Admin khác
-            if (isCurrentUserCreator && !isSelf) {
-                // Thăng cấp lên Admin (chỉ khi chưa phải admin)
-                if (member.role === 'member') {
+            // 1. Logic cho Super Admin
+            if (isSuperAdmin && !isSelf) {
+                // Promote Member -> Admin
+                if (targetRole === 'member') {
                     actionsHtml += `<button onclick="window.GroupModule.manageMemberRole('${groupId}', '${member.user_id}', 'promote')" 
-                                            class="text-xs px-2 py-1 bg-green-500 text-white rounded">⬆️ Thăng cấp</button>`;
+                                            class="text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition">⬆️ Lên Admin</button>`;
                 }
-                // Giáng cấp xuống Member (chỉ khi đang là admin)
-                else if (member.role === 'admin') {
+                // Admin Actions: Demote or Transfer Ownership
+                else if (targetRole === 'admin') {
+                    // Demote
                     actionsHtml += `<button onclick="window.GroupModule.manageMemberRole('${groupId}', '${member.user_id}', 'demote')" 
-                                            class="text-xs px-2 py-1 border rounded">⬇️ Giáng cấp</button>`;
+                                            class="text-xs px-2 py-1 border border-orange-500 text-orange-500 rounded hover:bg-orange-50 dark:hover:bg-orange-900/30 transition mr-1">⬇️ Xuống Member</button>`;
+
+                    // Transfer Ownership (Promote to Super Admin)
+                    actionsHtml += `<button onclick="window.GroupModule.manageMemberRole('${groupId}', '${member.user_id}', 'transfer_ownership')" 
+                                            class="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition" title="Chuyển quyền Chủ Page">👑 Trao quyền</button>`;
+                }
+
+                // Remove (Can remove anyone except self)
+                if (targetRole !== 'super_admin') {
+                    actionsHtml += `<button onclick="window.GroupModule.removeMember('${groupId}', '${member.user_id}')" 
+                                            class="text-xs px-2 py-1 text-red-500 border border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/30 rounded ml-2">❌ Xóa</button>`;
                 }
             }
 
-            // Xóa thành viên: Creator/Admin xóa Member thường, Creator xóa được Admin khác
-            if (!isSelf && (isCurrentUserCreator || (member.role === 'member' && !isCreator))) {
-                // [NEW] Nút xóa thành viên
-                actionsHtml += `<button onclick="window.GroupModule.removeMember('${groupId}', '${member.user_id}')" 
-                                        class="text-xs px-2 py-1 text-red-500 border rounded ml-2">❌ Xóa</button>`;
+            // 2. Logic cho Admin (Chỉ xóa được Member)
+            else if (isAdmin && !isSelf) {
+                if (targetRole === 'member') {
+                    actionsHtml += `<button onclick="window.GroupModule.removeMember('${groupId}', '${member.user_id}')" 
+                                            class="text-xs px-2 py-1 text-red-500 border border-red-200 hover:bg-red-50 rounded ml-2">❌ Xóa</button>`;
+                }
             }
 
+            // Label Role
+            let roleLabel = '👤 Thành viên';
+            if (targetRole === 'super_admin') roleLabel = '👑 Chủ Page';
+            else if (targetRole === 'admin') roleLabel = '🛡️ Admin';
+
+            // Special explicit check for creator ID from response just in case
+            if (String(member.user_id) === String(creatorId)) roleLabel = '👑 Chủ Page';
 
             return `
                 <div class="surface p-3 mb-2 rounded-lg flex justify-between items-center border border-base">
@@ -680,7 +814,7 @@ export async function renderGroupMembers(groupId) {
                         <div>
                             <div class="font-bold text-gray-800">${member.full_name} ${isSelf ? '(Bạn)' : ''}</div>
                             <div class="text-xs text-gray-500">
-                                ${isCreator ? '👑 Chủ Page' : member.role === 'admin' ? '🛡️ Admin' : '👤 Thành viên'}
+                                ${roleLabel}
                             </div>
                         </div>
                     </div>
@@ -991,8 +1125,8 @@ window.GroupModule = {
     showCreateGroupModal,
     submitCreateGroup,
     manageMembership,
-    triggerAvatarUpload, // [NEW]
-    handleAvatarUpload,  // [NEW]
+    triggerAvatarUpload,
+    handleAvatarUpload,
     renderPendingRequests,
     approveRejectMember,
     deleteGroup,

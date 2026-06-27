@@ -1,48 +1,44 @@
-// --- 1. CONFIGURATION AND CORE STATE ---
-
 export const IO_URL = 'http://localhost:3000';
 export const API_URL = `${IO_URL}/api`;
 
-// Expose to window for global access
+// Khởi tạo Socket.io instance duy nhất
+export const io = window.io ? window.io(IO_URL) : null;
+//tạo kết nối socket để sau này hiển thị console bắt lỗi routes và kiểm tra logic
 window.IO_URL = IO_URL;
 window.API_URL = API_URL;
 
-// Khởi tạo Socket.io
-export const io = window.io(IO_URL);
-
 // Biến trạng thái toàn cục
-window.currentUser = null;
+window.currentUser = null; // Biến lưu thông tin người dùng hiện tại
 window.currentView = 'login'; // Mặc định là login
 window.activeChat = null; // ID người đang chat
-window.onlineUsersSet = new Set(); // [NEW] Global Set to track online user IDs
+window.onlineUsersSet = new Set(); // Global Set to track online user IDs
 
 export let chatWidth = 33.33; // Chiều rộng mặc định của chat sidebar
-export let isDarkMode = false;
-export let showOnlineStatus = true;
-export let allowNonFriendsViewProfile = true;
+export let isDarkMode = false; // Biến lưu trạng thái mode
+export let showOnlineStatus = true; // Hiển thị trạng thái online
+export let allowNonFriendsViewProfile = true; // Cho phép xem profile của người không phải bạn bè
 
 export const defaultConfig = {
-    site_name: "SocialVN",
-    welcome_message: "Kết nối và chia sẻ với mọi người",
-    primary_action: "#3b82f6",
-    fontSize: 16
+    site_name: "Mini Social Network", // Tên website
+    welcome_message: "Kết nối và chia sẻ với mọi người", // Tin chào mừng
+    primary_action: "#3b82f6", // Màu chính
+    fontSize: 16 // Kích thước font
 };
 
-// --- THEME LOGIC ---
+// --- THEME logic ---
 export function initTheme() {
-    // Check localStorage or System Preference
-    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.documentElement.classList.add('dark');
-        document.body.classList.add('dark-mode');
+    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {// Kiểm tra theme trong localStorage hoặc hệ thống
+        document.documentElement.classList.add('dark'); // Thêm class dark vào document
+        document.body.classList.add('dark-mode'); // Thêm class dark-mode vào body
         isDarkMode = true;
     } else {
-        document.documentElement.classList.remove('dark');
-        document.body.classList.remove('dark-mode');
+        document.documentElement.classList.remove('dark'); // Xóa class dark khỏi document
+        document.body.classList.remove('dark-mode'); // Xóa class dark-mode khỏi body
         isDarkMode = false;
     }
-    updateThemeIcon();
+    updateThemeIcon();// Cập nhật icon theme
 }
-
+// --- THEME TOGGLE ---
 export function toggleTheme() {
     if (isDarkMode) {
         document.documentElement.classList.remove('dark');
@@ -67,47 +63,61 @@ function updateThemeIcon() {
 
 // Auto init on load
 initTheme();
-window.toggleTheme = toggleTheme; // Bind to window for HTML access
+window.toggleTheme = toggleTheme;
+
+// Global Error Handling for Images (Moved from index.html)
+document.addEventListener('error', function (e) {
+    if (e.target.tagName.toLowerCase() === 'img') {
+        const src = e.target.getAttribute('src');
+        if (src && src.includes('default')) return; // Prevent infinite loop
+
+        // Avatar fallback
+        if (e.target.id === 'userAvatar' || e.target.classList.contains('avatar')) {
+            e.target.src = 'images/default.png';
+        }
+        // Cover fallback
+        else if (e.target.id === 'coverImg') {
+            e.target.src = 'images/default_cover.png';
+        }
+    }
+}, true);
 
 /** 
  * Wrapper cho fetch để tự động đính kèm JWT Token vào Header 
  */
-export async function apiFetch(endpoint, options = {}) {
+export async function apiFetch(endpoint, options = {}) {// Wrapper cho fetch để tự động đính kèm JWT Token vào Header
     // Tự động thêm dấu / nếu thiếu
     const url = endpoint.startsWith('http') ? endpoint : `${API_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
-    // Khởi tạo headers
-    options.headers = options.headers || {};
+    options.headers = options.headers || {};// Khởi tạo headers
 
-    // Đính kèm token nếu có
-    const token = window.authToken || localStorage.getItem('token');
+    const token = window.authToken || localStorage.getItem('token');// Lấy token từ window hoặc localStorage
     if (token) {
-        options.headers['Authorization'] = `Bearer ${token}`;
+        options.headers['Authorization'] = `Bearer ${token}`;// Đính kèm token vào header
     }
 
-    // [FIX] Tự động set Content-Type là JSON nếu body là string
-    if (options.body && typeof options.body === 'string' && !options.headers['Content-Type']) {
-        options.headers['Content-Type'] = 'application/json';
+    if (options.body && typeof options.body === 'string' && !options.headers['Content-Type']) {// Tự động set Content-Type là JSON nếu body là string
+        options.headers['Content-Type'] = 'application/json';//
     }
 
     try {
-        const response = await fetch(url, options);
+        const response = await fetch(url, options);// Gọi API
 
         // Xử lý lỗi xác thực (401 hoặc 403)
         if (response.status === 401 || response.status === 403) {
             console.warn("Lỗi xác thực, đang đăng xuất...");
-            localStorage.removeItem('currentUser');
-            localStorage.removeItem('token');
-            window.currentUser = null;
-            window.authToken = null;
+            localStorage.removeItem('currentUser');// Xóa thông tin người dùng khỏi localStorage
+            localStorage.removeItem('token');// Xóa token khỏi localStorage
+            window.currentUser = null;// Xóa thông tin người dùng khỏi window
+            window.authToken = null;// Xóa token khỏi window
             window.renderLogin();
             return null;
         }
 
-        // [NEW] Xử lý lỗi bảo trì (503)
+        // Xử lý lỗi bảo trì (503)
         if (response.status === 503) {
-            const data = await response.json();
-            window.renderMaintenance(data.message);
+            const data = await response.json();// Lấy dữ liệu từ response
+            window.renderMaintenance(data.message);// Hiển thị thông báo bảo trì
             return null;
         }
 
@@ -120,34 +130,29 @@ export async function apiFetch(endpoint, options = {}) {
 window.apiFetch = apiFetch;
 
 
-// --- 2. MODULE IMPORTS (CẬP NHẬT CẤU TRÚC TÁCH NHỎ) ---
-
-import * as AuthModule from './modules/auth.js';
+//2. MODULE IMPORTS (CẬP NHẬT CẤU TRÚC TÁCH NHỎ) ---
+import * as AuthModule from './modules/auth.js';//
 import * as NewsfeedModule from './modules/newsfeed.js';
 import * as ChatModule from './modules/chat.js';
 import * as SearchModule from './modules/search.js';
 import * as GroupModule from './modules/group.js';
 import * as NotificationModule from './modules/notification.js';
-
-// Các module mới được tách ra
 import * as ProfileModule from './modules/profile.js';
 import * as FriendRequestModule from './modules/friendRequest.js';
 import * as SettingModule from './modules/setting.js';
 
 
-// --- 3. UI UTILITIES ---
-
-/** Hiển thị thông báo Toast */
-export function showToast(message, type = 'info') {
-    const toast = document.createElement('div');
-    toast.className = 'surface fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 transition-opacity duration-300';
+//3. UI UTILITIES ---
+export function showToast(message, type = 'info') {// Hiển thị thông báo Toast
+    const toast = document.createElement('div');// Tạo element toast
+    toast.className = 'surface fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 transition-opacity duration-300';// Set class cho toast
     toast.innerHTML = `
         <div class="flex items-center gap-2">
             <span>${type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ'}</span>
             <span>${message}</span>
         </div>
-    `;
-    document.body.appendChild(toast);
+    `;// Set nội dung cho toast
+    document.body.appendChild(toast);// Thêm toast vào body
 
     setTimeout(() => {
         toast.style.opacity = '0';
@@ -156,10 +161,9 @@ export function showToast(message, type = 'info') {
 }
 window.showToast = showToast;
 
-/** Hiển thị dialog xác nhận */
-export function showConfirmDialog(message, onConfirm) {
-    const modal = document.createElement('div');
-    modal.className = 'modal-backdrop fixed inset-0 flex items-center justify-center z-50 bg-black/50';
+export function showConfirmDialog(message, onConfirm) {// Hiển thị dialog xác nhận
+    const modal = document.createElement('div');// Tạo element modal
+    modal.className = 'modal-backdrop fixed inset-0 flex items-center justify-center z-50 bg-black/50';// Set class cho modal
     modal.innerHTML = `
         <div class="surface p-6 max-w-sm rounded-lg shadow-xl bg-white">
             <p class="mb-4 text-slate-700 font-medium">${message}</p>
@@ -168,270 +172,246 @@ export function showConfirmDialog(message, onConfirm) {
                 <button id="btnCancel" class="px-4 py-2 border rounded-lg font-bold">Hủy</button>
             </div>
         </div>
-    `;
-    document.body.appendChild(modal);
+    `;// Set nội dung cho modal
+    document.body.appendChild(modal);// Thêm modal vào body
 
     document.getElementById('btnConfirm').onclick = () => {
         onConfirm();
         modal.remove();
-    };
-    document.getElementById('btnCancel').onclick = () => modal.remove();
+    };// Xử lý sự kiện khi nhấn xác nhận
+    document.getElementById('btnCancel').onclick = () => modal.remove();// Xử lý sự kiện khi nhấn hủy
 }
 window.showConfirmDialog = showConfirmDialog;
 
-/** Mở modal hệ thống */
-export function openModal(title, contentHTML) {
-    const modal = document.getElementById('appModal');
-    const modalBody = document.getElementById('modalBody');
-    const modalContent = modal?.querySelector('.modal-content');
+export function openModal(title, contentHTML) {// Mở modal hệ thống
+    const modal = document.getElementById('appModal');// Lấy element modal
+    const modalBody = document.getElementById('modalBody');// Lấy element modal body
+    const modalContent = modal?.querySelector('.modal-content');// Lấy element modal content
 
-    if (modal && modalBody && modalContent) {
-        let modalTitle = modalContent.querySelector('h3');
+    if (modal && modalBody && modalContent) {// Kiểm tra element modal, modal body và modal content có tồn tại không
+        let modalTitle = modalContent.querySelector('h3');// Lấy element modal title
         if (!modalTitle) {
-            modalTitle = document.createElement('h3');
-            modalTitle.className = 'text-2xl font-bold mb-4 border-b pb-2';
-            modalContent.insertBefore(modalTitle, modalBody);
+            modalTitle = document.createElement('h3');// Tạo element modal title
+            modalTitle.className = 'text-2xl font-bold mb-4 border-b pb-2';// Set class cho modal title
+            modalContent.insertBefore(modalTitle, modalBody);// Thêm modal title vào modal content
         }
 
-        modalTitle.textContent = title;
-        modalBody.innerHTML = contentHTML;
-        modal.classList.remove('hidden');
+        modalTitle.textContent = title;// Set nội dung cho modal title
+        modalBody.innerHTML = contentHTML;// Set nội dung cho modal body
+        modal.classList.remove('hidden');// Hiển thị modal
     }
 }
 window.openModal = openModal;
 
-/** Đóng modal hệ thống */
-export function closeModal() {
-    const modal = document.getElementById('appModal');
-    if (modal) modal.classList.add('hidden');
-    const modalBody = document.getElementById('modalBody');
-    if (modalBody) modalBody.innerHTML = '';
+export function closeModal() {// Đóng modal hệ thống
+    const modal = document.getElementById('appModal');// Lấy element modal
+    if (modal) modal.classList.add('hidden');// Ẩn modal
+    const modalBody = document.getElementById('modalBody');// Lấy element modal body
+    if (modalBody) modalBody.innerHTML = '';// Xóa nội dung modal body
 }
 window.closeModal = closeModal;
 
-/** Tính thời gian đã trôi qua */
-export function getTimeAgo(timestamp) {
-    const now = new Date();
-    const time = new Date(timestamp);
-    const diff = Math.floor((now - time) / 1000);
+export function getTimeAgo(timestamp) {// Tính thời gian đã trôi qua
+    const now = new Date();// Lấy thời gian hiện tại
+    const time = new Date(timestamp);// Lấy thời gian từ timestamp
+    const diff = Math.floor((now - time) / 1000);// Tính số giây đã trôi qua
 
-    const MINUTE = 60;
-    const HOUR = 3600;
-    const DAY = 86400;
+    const MINUTE = 60;// Số giây trong 1 phút
+    const HOUR = 3600;// Số giây trong 1 giờ
+    const DAY = 86400;// Số giây trong 1 ngày
 
-    if (diff < MINUTE) return 'Vừa xong';
-    if (diff < HOUR) return Math.floor(diff / 60) + ' phút trước';
-    if (diff < DAY) return Math.floor(diff / 3600) + ' giờ trước';
-    if (diff < 604800) return Math.floor(diff / 86400) + ' ngày trước';
-    return time.toLocaleDateString('vi-VN');
+    if (diff < MINUTE) return 'Vừa xong';// Nếu số giây đã trôi qua nhỏ hơn 1 phút
+    if (diff < HOUR) return Math.floor(diff / 60) + ' phút trước';// Nếu số giây đã trôi qua nhỏ hơn 1 giờ
+    if (diff < DAY) return Math.floor(diff / 3600) + ' giờ trước';// Nếu số giây đã trôi qua nhỏ hơn 1 ngày
+    if (diff < 604800) return Math.floor(diff / 86400) + ' ngày trước';// Nếu số giây đã trôi qua nhỏ hơn 1 tuần
+    return time.toLocaleDateString('vi-VN');// Nếu số giây đã trôi qua lớn hơn 1 tuần
 }
 window.getTimeAgo = getTimeAgo;
 
-/** 
- * Lấy đường dẫn Avatar chuẩn hóa (Global Helper)
- * @param {string|null} avatarPath - Đường dẫn từ DB
- * @returns {string} - URL đầy đủ để hiển thị
- */
-export function getAvatarUrl(avatarPath, gender = 'male') {
-    if (!avatarPath) {
+export function getAvatarUrl(avatarPath, gender = 'male') {// Lấy đường dẫn Avatar chuẩn hóa (Global Helper)
+    if (!avatarPath) {// Nếu không có avatar path
         // Fallback theo giới tính
-        const genderStr = String(gender).toLowerCase();
-        if (genderStr === 'female' || genderStr === 'nữ') {
-            return './images/default_avatar_female.png';
+        const genderStr = String(gender).toLowerCase();// Chuyển giới tính thành chữ thường
+        if (genderStr === 'female' || genderStr === 'nữ') {// Nếu giới tính là nữ
+            return './images/default_avatar_female.png';// Trả về avatar nữ
         }
-        return './images/default_avatar_male.png';
+        return './images/default_avatar_male.png';// Trả về avatar nam
     }
 
-    if (avatarPath.startsWith('http') || avatarPath.startsWith('//')) {
+    if (avatarPath.startsWith('http') || avatarPath.startsWith('//')) {// Nếu avatar path bắt đầu bằng http hoặc //
+        return avatarPath;// Trả về avatar path
+    }
+
+    if (avatarPath.includes('frontend/images/') || avatarPath.startsWith('images/')) {// Nếu avatar path chứa frontend/images/ hoặc bắt đầu bằng images/
+        // Extract filename and point to local images folder
         return avatarPath;
     }
 
-    // [FIX] Detect static frontend images (requested by user to store as frontend/images/...)
-    // If path implies it's a local static image, return relative path to ./images/
-    if (avatarPath.includes('frontend/images/') || avatarPath.startsWith('images/')) {
-        // Extract filename and point to local images folder
-        const filename = avatarPath.split('/').pop(); // e.g. default_super_admin.png
-        return `./images/${filename}`;
+    if (avatarPath.includes('frontend/images/') || avatarPath.startsWith('images/')) {// Nếu avatar path chứa frontend/images/ hoặc bắt đầu bằng images/
+        const filename = avatarPath.split('/').pop(); // Lấy tên file
+        return `./images/${filename}`;// Trả về avatar path
     }
 
-    // Chuẩn hóa đường dẫn (thay thế backslash cho Windows, bỏ dấu / ở đầu)
-    let cleanPath = avatarPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    let cleanPath = avatarPath.replace(/\\/g, '/').replace(/^\/+/, '');// Chuẩn hóa đường dẫn (thay thế backslash cho Windows, bỏ dấu / ở đầu)
 
-    // [FIX] Xử lý đường dẫn cũ bị thừa thư mục con
-    cleanPath = cleanPath.replace('uploads/avatars/', 'uploads/');
-    cleanPath = cleanPath.replace('uploads/covers/', 'uploads/');
+    cleanPath = cleanPath.replace('uploads/avatars/', 'uploads/');// Xử lý đường dẫn cũ bị thừa thư mục con
+    cleanPath = cleanPath.replace('uploads/covers/', 'uploads/');// Xử lý đường dẫn cũ bị thừa thư mục con
 
-    // Đảm bảo đường dẫn bắt đầu bằng 'uploads/' nếu là file từ server
-    if (!cleanPath.startsWith('uploads/')) {
-        cleanPath = `uploads/${cleanPath}`;
+    if (!cleanPath.startsWith('uploads/')) {// Đảm bảo đường dẫn bắt đầu bằng 'uploads/' nếu là file từ server
+        cleanPath = `uploads/${cleanPath}`;// Trả về avatar path
     }
 
     const backendDomain = API_URL.replace('/api', ''); // http://localhost:3000
-    return `${backendDomain}/${cleanPath}`;
+    return `${backendDomain}/${cleanPath}`;// Trả về avatar path
 }
 window.getAvatarUrl = getAvatarUrl;
 
-/**
- * Trình trợ giúp để lấy HTML của Avatar kèm theo điểm trạng thái online (Global Helper)
- * @param {string} userId - ID người dùng
- * @param {string} avatarUrl - URL avatar
- * @param {string} gender - Giới tính
- * @param {string} sizeClass - Class size (ví dụ: w-10 h-10)
- */
-export function getAvatarWithStatusHtml(userId, avatarPath, gender, sizeClass = 'w-10 h-10') {
-    const avatarUrl = getAvatarUrl(avatarPath, gender);
-    const isOnline = window.onlineUsersSet && window.onlineUsersSet.has(String(userId));
+export function getAvatarWithStatusHtml(userId, avatarPath, gender, sizeClass = 'w-10 h-10') {// Trình trợ giúp để lấy HTML của Avatar kèm theo điểm trạng thái online (Global Helper)
+    const avatarUrl = getAvatarUrl(avatarPath, gender);// Lấy avatar url
+    const isOnline = window.onlineUsersSet && window.onlineUsersSet.has(String(userId));// Kiểm tra user online
 
     return `
         <div class="relative ${sizeClass} flex-shrink-0 avatar-wrapper-user-${userId}">
             <img src="${avatarUrl}" class="w-full h-full rounded-full object-cover border border-gray-100 dark:border-slate-800" onerror="this.src='./images/default_avatar_male.png'">
             <div class="status-dot-user-${userId} absolute bottom-0 right-0 w-[25%] h-[25%] bg-green-500 border-2 border-white dark:border-slate-900 rounded-full ${isOnline ? '' : 'hidden'}"></div>
         </div>
-    `;
+    `;// Trả về HTML của avatar kèm theo điểm trạng thái online
 }
 window.getAvatarWithStatusHtml = getAvatarWithStatusHtml;
 
-/**
- * Cập nhật trạng thái hiển thị của tất cả các avatar của một user trên toàn trang
- */
-export function updateGlobalOnlineStatus(userId, status) {
+export function updateGlobalOnlineStatus(userId, status) {// Cập nhật trạng thái hiển thị của tất cả các avatar của một user trên toàn trang
     if (status === 'online') {
-        window.onlineUsersSet.add(String(userId));
+        window.onlineUsersSet.add(String(userId));// Thêm user vào set
     } else {
-        window.onlineUsersSet.delete(String(userId));
+        window.onlineUsersSet.delete(String(userId));// Xóa user khỏi set
     }
 
-    const dots = document.querySelectorAll(`.status-dot-user-${userId}`);
+    const dots = document.querySelectorAll(`.status-dot-user-${userId}`);// Lấy tất cả các điểm trạng thái online
     if (status === 'online') {
-        dots.forEach(dot => dot.classList.remove('hidden'));
+        dots.forEach(dot => dot.classList.remove('hidden'));// Hiển thị điểm trạng thái online
     } else {
-        dots.forEach(dot => dot.classList.add('hidden'));
+        dots.forEach(dot => dot.classList.add('hidden'));// Ẩn điểm trạng thái online
     }
 }
 window.updateGlobalOnlineStatus = updateGlobalOnlineStatus;
 
 
-// --- 4. VIEW MANAGEMENT ---
-
-/** Chuyển đổi giữa các View */
-export function switchView(view, id = null) {
-    if (view === 'profile' && id) {
-        window.currentView = `profile_${id}`;
+//4. VIEW MANAGEMENT
+export function switchView(view, id = null) {// Chuyển đổi giữa các View
+    if (view === 'profile' && id) {// Nếu view là profile và có id
+        window.currentView = `profile_${id}`;// Cập nhật view
     }
-    else if (view === 'post' && id) {
-        window.currentView = `post_${id}`;
+    else if (view === 'post' && id) {// Nếu view là post và có id
+        window.currentView = `post_${id}`;// Cập nhật view
     }
-    else if (view === 'group' && id) {
-        window.currentView = `group_detail_${id}`;
+    else if (view === 'group' && id) {// Nếu view là group và có id
+        window.currentView = `group_detail_${id}`;// Cập nhật view
     } else {
-        window.currentView = view;
+        window.currentView = view;// Cập nhật view
     }
 
-    renderCurrentView();
-    updateHeaderActiveState(view); // [NEW] Update Active Nav UI
-    document.getElementById('searchDropdown')?.classList.add('hidden');
+    renderCurrentView();// Render nội dung dựa trên trạng thái window.currentView
+    updateHeaderActiveState(view);// Cập nhật header active state
+    document.getElementById('searchDropdown')?.classList.add('hidden');// Ẩn search dropdown
 }
 window.switchView = switchView;
 
-/** Render nội dung dựa trên trạng thái window.currentView */
-export function renderCurrentView() {
+export function renderCurrentView() {// Render nội dung dựa trên trạng thái window.currentView
     // 1. Kiểm tra quyền truy cập (Nếu chưa login chỉ được xem login/register)
-    if (!window.currentUser && window.currentView !== 'login' && window.currentView !== 'register') {
-        window.currentView = 'login';
+    if (!window.currentUser && window.currentView !== 'login' && window.currentView !== 'register') {// Nếu chưa login và không phải view login/register
+        window.currentView = 'login';// Cập nhật view
         AuthModule.renderLogin();
         return;
     }
-    else if (window.currentUser && (window.currentView === 'login' || window.currentView === 'register')) {
-        window.currentView = 'home';
+    else if (window.currentUser && (window.currentView === 'login' || window.currentView === 'register')) {// Nếu đã login và view là login/register
+        window.currentView = 'home';// Cập nhật view
     }
 
-    const mainContent = document.getElementById('mainContent');
-    if (!mainContent && window.currentView !== 'login' && window.currentView !== 'register') {
+    const mainContent = document.getElementById('mainContent');// Lấy main content
+    if (!mainContent && window.currentView !== 'login' && window.currentView !== 'register') {// Nếu không có main content và không phải view login/register
         return;
     }
 
-    const viewName = window.currentView.split('_')[0];
+    const viewName = window.currentView.split('_')[0];// Lấy view name
 
     // 2. Định tuyến View
     switch (viewName) {
-        case 'login':
+        case 'login':// Nếu view là login
             loadAuthShell();
             AuthModule.renderLogin();
             break;
-        case 'register':
+        case 'register':// Nếu view là register
             loadAuthShell();
             AuthModule.renderRegister();
             break;
-        case 'home':
+        case 'home':// Nếu view là home
             NewsfeedModule.renderHome();
             break;
-        case 'pages':
+        case 'pages':// Nếu view là pages
             GroupModule.renderGroupList();
             break;
-        case 'notifications':
+        case 'notifications':// Nếu view là notifications
             NotificationModule.renderNotificationsPage();
             break;
-        case 'settings':
+        case 'settings':// Nếu view là settings
             SettingModule.renderSettings();
             break;
-        case 'archive':
+        case 'archive':// Nếu view là archive
             NewsfeedModule.renderArchivePage();
             break;
-        case 'friendRequests':
+        case 'friendRequests':// Nếu view là friendRequests
             FriendRequestModule.renderFriendRequests();
             break;
-        case 'profile':
+        case 'profile':// Nếu view là profile
             const userId = window.currentView.substring('profile_'.length);
             ProfileModule.renderProfile(userId);
             break;
-        case 'group':
-            if (window.currentView.startsWith('group_detail_')) {
+        case 'group':// Nếu view là group
+            if (window.currentView.startsWith('group_detail_')) {// Nếu view là group_detail
                 const groupId = window.currentView.substring('group_detail_'.length);
                 GroupModule.renderGroupDetail(groupId);
             }
             break;
-        case 'post':
-            // Handle post navigation - fetch post details and navigate to owner's profile
+        case 'post':// Nếu view là post
             (async () => {
-                const postId = window.currentView.substring('post_'.length);
+                const postId = window.currentView.substring('post_'.length);// Lấy post id
                 try {
-                    const res = await apiFetch(`/posts/${postId}/check`);
+                    const res = await apiFetch(`/posts/${postId}/check`);// Kiểm tra post tồn tại
                     if (!res) return;
-                    const data = await res.json();
+                    const data = await res.json();// Lấy data
 
                     if (!data.exists) {
-                        showToast("Bài viết này không còn tồn tại!", "error");
+                        showToast("Bài viết này không còn tồn tại!", "error");// Hiển thị thông báo
                         switchView('home');
                         return;
                     }
 
                     if (data.groupId) {
                         // Post in group
-                        const memberRes = await apiFetch(`/groups/${data.groupId}/check-member?user_id=${window.currentUser.userId}`);
+                        const memberRes = await apiFetch(`/groups/${data.groupId}/check-member?user_id=${window.currentUser.userId}`);// Kiểm tra user có trong group không
                         if (!memberRes) return;
-                        const memberData = await memberRes.json();
+                        const memberData = await memberRes.json();// Lấy data
 
-                        switchView('group', data.groupId);
-                        if (memberData.isMember) {
+                        switchView('group', data.groupId);// Chuyển view
+                        if (memberData.isMember) {// Nếu user có trong group
                             setTimeout(() => {
-                                const el = document.getElementById(`post-${postId}`);
-                                if (el) {
-                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    el.classList.add('ring-4', 'ring-blue-500', 'transition-all', 'duration-500');
-                                    setTimeout(() => el.classList.remove('ring-4', 'ring-blue-500'), 3000);
+                                const el = document.getElementById(`post-${postId}`);// Lấy post
+                                if (el) {// Nếu post tồn tại
+                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });// Scroll vào post
+                                    el.classList.add('ring-4', 'ring-blue-500', 'transition-all', 'duration-500');// Thêm hiệu ứng
+                                    setTimeout(() => el.classList.remove('ring-4', 'ring-blue-500'), 3000);// Loại bỏ hiệu ứng
                                 }
                             }, 1500);
                         } else {
-                            showToast("Bài viết nằm trong nhóm. Hãy tham gia để xem chi tiết!", "info");
+                            showToast("Bài viết nằm trong nhóm. Hãy tham gia để xem chi tiết!", "info");// Hiển thị thông báo
                         }
                     } else {
-                        // Personal post
-                        switchView('profile', data.ownerId);
+                        switchView('profile', data.ownerId);// Chuyển view
                         setTimeout(() => {
-                            const el = document.getElementById(`post-${postId}`);
-                            if (el) {
-                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                el.classList.add('ring-4', 'ring-blue-500', 'transition-all', 'duration-500');
+                            const el = document.getElementById(`post-${postId}`);// Lấy post
+                            if (el) {// Nếu post tồn tại
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });// Scroll vào post
+                                el.classList.add('ring-4', 'ring-blue-500', 'transition-all', 'duration-500');// Thêm hiệu ứng
                                 setTimeout(() => el.classList.remove('ring-4', 'ring-blue-500'), 3000);
                             }
                         }, 1500);
@@ -445,15 +425,14 @@ export function renderCurrentView() {
             break;
         default:
             if (mainContent) {
-                mainContent.innerHTML = `<div class="p-8 text-center text-gray-500 italic">Tính năng ${window.currentView} đang phát triển...</div>`;
+                mainContent.innerHTML = `<div class="p-8 text-center text-gray-500 italic">Tính năng ${window.currentView} đang phát triển...</div>`;// Hiển thị thông báo
             }
             break;
     }
 }
 
-/** Nạp khung HTML cho Auth (Sử dụng khi logout hoặc khởi tạo) */
-export function loadAuthShell() {
-    const app = document.getElementById('app');
+export function loadAuthShell() {// Nạp khung HTML cho Auth (Sử dụng khi logout hoặc khởi tạo)
+    const app = document.getElementById('app');// Lấy app
     app.innerHTML = `
         <div id="authTemplate" class="h-full w-full flex items-center justify-center bg-slate-50">
             <div id="authContainer" class="surface w-full max-w-md p-8 rounded-2xl shadow-xl bg-white animate-fade-in">
@@ -463,7 +442,7 @@ export function loadAuthShell() {
         <template id="loginTemplate">
             <div class="text-center mb-8">
                 <div class="text-5xl mb-4">🌐</div>
-                <h1 class="text-2xl font-black text-slate-800">SocialVN</h1>
+                <h1 class="text-2xl font-black text-slate-800">Mini Social Network</h1>
                 <p class="text-slate-500 mt-2">Kết nối và chia sẻ với mọi người</p>
             </div>
             <form id="loginForm" class="space-y-4">
@@ -528,8 +507,7 @@ export function loadAuthShell() {
 }
 window.loadAuthShell = loadAuthShell;
 
-/** Nạp Newsfeed Shell Template */
-function loadNewsfeedShell() {
+function loadNewsfeedShell() {// Nạp Newsfeed Shell Template
     return `
         <template id="newsfeedTemplate">
             <div class="max-w-2xl mx-auto">
@@ -549,8 +527,7 @@ function loadNewsfeedShell() {
     `;
 }
 
-/** Render App Shell (Header, Sidebar, Content) */
-export function renderApp() {
+export function renderApp() {// Render App Shell (Header, Sidebar, Content)
     const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
 
     document.getElementById('app').innerHTML = `
@@ -558,11 +535,15 @@ export function renderApp() {
             <div class="flex items-center justify-between max-w-7xl mx-auto">
                 <div class="flex items-center gap-4 cursor-pointer" onclick="window.switchView('home')">
                     <div class="text-3xl">🌐</div>
-                    <h1 class="site-name text-content font-bold dark:text-white" style="font-size:${config.fontSize * 1.5}px;">SocialVN</h1>
+                    <h1 class="site-name text-content font-bold dark:text-white" style="font-size:${config.fontSize * 1.5}px;">Mini Social Network</h1>
                 </div>
 
                 <div class="flex-1 max-w-xl mx-4 relative group">
-                    <input type="text" id="globalSearchInput" placeholder="🔍 Tìm kiếm bạn bè, nhóm..." 
+                    <!-- Bẫy lỗi autofill của trình duyệt -->
+                    <input type="text" style="display:none" aria-hidden="true">
+                    <input type="password" style="display:none" aria-hidden="true">
+                    
+                    <input type="text" id="globalSearchInput" placeholder="🔍 Tìm kiếm bạn bè, nhóm..." autocomplete="chrome-off"
                            class="w-full p-2.5 pr-10 bg-slate-100 dark:bg-slate-800 dark:text-white rounded-full outline-none focus:bg-white dark:focus:bg-slate-700 border dark:border-slate-700 focus:border-blue-500 transition shadow-sm"
                            onfocus="window.SearchModule.handleSearchFocus()" oninput="window.SearchModule.handleSearchInput(this.value)">
                     <button onclick="window.SearchModule.clearGlobalSearch()" 
@@ -642,55 +623,53 @@ export function renderApp() {
     renderCurrentView();
 
     // Khởi tạo trạng thái chat mặc định
-    if (window.ChatModule?.switchChatTab) {
-        window.ChatModule.switchChatTab('friends');
+    if (window.ChatModule?.switchChatTab) {// Kiểm tra tồn tại
+        window.ChatModule.switchChatTab('friends');// Khởi tạo trạng thái chat mặc định
     }
 
     // Tải thông báo & lời mời ban đầu
-    if (NotificationModule.loadInitialUnreadCount) NotificationModule.loadInitialUnreadCount();
-    if (FriendRequestModule.loadBadgeCount) FriendRequestModule.loadBadgeCount();
+    if (NotificationModule.loadInitialUnreadCount) NotificationModule.loadInitialUnreadCount();// Tải thông báo
+    if (FriendRequestModule.loadBadgeCount) FriendRequestModule.loadBadgeCount();// Tải lời mời
 }
 window.renderApp = renderApp;
 
 
-// --- 5. RESIZER LOGIC ---
-function setupResizer() {
-    const resizer = document.getElementById('splitter');
-    const chatSidebar = document.getElementById('chatSidebar');
-    const mainLayout = document.getElementById('mainLayout');
-    if (!resizer || !chatSidebar) return;
+function setupResizer() {// Cài đặt resizer hay chia layout
+    const resizer = document.getElementById('splitter');// Lấy resizer
+    const chatSidebar = document.getElementById('chatSidebar');// Lấy chat sidebar
+    const mainLayout = document.getElementById('mainLayout');// Lấy main layout
+    if (!resizer || !chatSidebar) return;// Kiểm tra tồn tại
 
-    let isResizing = false;
+    let isResizing = false;// Cài đặt trạng thái resizer
 
-    resizer.addEventListener('mousedown', () => { isResizing = true; document.body.style.cursor = 'col-resize'; });
-    document.addEventListener('mousemove', (e) => {
+    resizer.addEventListener('mousedown', () => { isResizing = true; document.body.style.cursor = 'col-resize'; });// Cài đặt sự kiện mousedown
+    document.addEventListener('mousemove', (e) => {// Cài đặt sự kiện mousemove
         if (!isResizing) return;
         const containerWidth = mainLayout.offsetWidth;
         const newWidth = (e.clientX / containerWidth) * 100;
-        if (newWidth >= 20 && newWidth <= 50) {
+        if (newWidth >= 20 && newWidth <= 50) {// Kiểm tra width
             chatWidth = newWidth;
             chatSidebar.style.width = `${chatWidth}%`;
         }
     });
-    document.addEventListener('mouseup', () => { isResizing = false; document.body.style.cursor = 'default'; });
+    document.addEventListener('mouseup', () => { isResizing = false; document.body.style.cursor = 'default'; });// Cài đặt sự kiện mouseup
 }
 
 
-// --- 6. SOCKET HANDLERS ---
-export function setupSocketHandlers() {
-    if (!window.currentUser) return;
-    io.emit('register_user', window.currentUser.userId);
+export function setupSocketHandlers() {// Cài đặt socket handlers
+    if (!window.currentUser) return;// Kiểm tra tồn tại
+    io.emit('register_user', window.currentUser.userId);// Gửi yêu cầu đăng ký
 
-    // [NEW] Kiểm tra trạng thái Online ban đầu của bạn bè sau khi đã nạp sidebar
+    //Kiểm tra trạng thái Online ban đầu của bạn bè sau khi đã nạp sidebar
     setTimeout(() => {
-        const friendIds = Array.from(document.querySelectorAll('[id^="chat-item-"]')).map(el => el.id.replace('chat-item-', ''));
-        if (friendIds.length > 0) {
-            io.emit('check_online_status', friendIds, (statusMap) => {
-                Object.keys(statusMap).forEach(uid => {
-                    if (window.updateGlobalOnlineStatus) {
+        const friendIds = Array.from(document.querySelectorAll('[id^="chat-item-"]')).map(el => el.id.replace('chat-item-', ''));// Lấy danh sách bạn bè
+        if (friendIds.length > 0) {// Kiểm tra tồn tại
+            io.emit('check_online_status', friendIds, (statusMap) => {// Gửi yêu cầu kiểm tra trạng thái Online
+                Object.keys(statusMap).forEach(uid => {// Duyệt qua danh sách
+                    if (window.updateGlobalOnlineStatus) {// Cập nhật trạng thái global
                         window.updateGlobalOnlineStatus(uid, statusMap[uid]);
                     }
-                    if (window.ChatModule && window.ChatModule.updateOnlineStatus) {
+                    if (window.ChatModule && window.ChatModule.updateOnlineStatus) {// Cập nhật trạng thái chat
                         window.ChatModule.updateOnlineStatus(uid, statusMap[uid]);
                     }
                 });
@@ -698,7 +677,7 @@ export function setupSocketHandlers() {
         }
     }, 2000);
 
-    // [NEW] Trạng thái Online/Offline Realtime
+    // Trạng thái Online/Offline Realtime
     io.on('user_status_changed', (data) => {
         if (window.updateGlobalOnlineStatus) {
             window.updateGlobalOnlineStatus(data.userId, data.status);
@@ -709,7 +688,7 @@ export function setupSocketHandlers() {
         }
     });
 
-    // [NEW] Bài viết mới Realtime (Newsfeed thời gian thực)
+    // Bài viết mới Realtime (Newsfeed thời gian thực)
     io.on('new_post', (fullPost) => {
         if (window.NewsfeedModule && window.NewsfeedModule.handleNewPostRealtime) {
             window.NewsfeedModule.handleNewPostRealtime(fullPost);
@@ -718,9 +697,9 @@ export function setupSocketHandlers() {
 
     // Tin nhắn riêng tư
     io.on('receive_private_message', (data) => {
-        if (typeof ChatModule.displayMessage === 'function') {
-            const isSelf = String(data.senderId) === String(window.currentUser.userId);
-            ChatModule.displayMessage(data, isSelf);
+        if (typeof ChatModule.displayMessage === 'function') {// Kiểm tra tồn tại
+            const isSelf = String(data.senderId) === String(window.currentUser.userId);// Kiểm tra người gửi
+            ChatModule.displayMessage(data, isSelf);// Hiển thị tin nhắn
         }
     });
 
@@ -730,7 +709,7 @@ export function setupSocketHandlers() {
         if (NotificationModule.updateUnreadCount) {
             NotificationModule.updateUnreadCount('increment');
         }
-        // [NEW] Cập nhật list thông báo nếu đang mở trang thông báo
+        // Cập nhật list thông báo nếu đang mở trang thông báo
         if (NotificationModule.handleNewIncomingNotification) {
             NotificationModule.handleNewIncomingNotification(data);
         }
@@ -743,7 +722,7 @@ export function setupSocketHandlers() {
 window.setupSocketHandlers = setupSocketHandlers;
 
 
-// --- 7. INITIALIZE APP ---
+// 7. INITIALIZE APP 
 function initializeApp() {
     const storedUser = localStorage.getItem('currentUser');
     const storedToken = localStorage.getItem('token');
@@ -752,7 +731,7 @@ function initializeApp() {
         window.currentUser = JSON.parse(storedUser);
         window.authToken = storedToken; // [NEW] Nạp token
 
-        // [NEW] Redirect Admin to Dashboard immediately (Check role or username fallback)
+        // Redirect Admin to Dashboard immediately (Check role or username fallback)
         console.log("Checking Admin Redirect:", window.currentUser);
         if (['admin', 'super_admin'].includes(window.currentUser.role) || window.currentUser.username === 'admin') {
             console.log("Redirecting to Admin Dashboard...");
@@ -762,13 +741,18 @@ function initializeApp() {
 
         setupSocketHandlers();
         renderApp();
+
+        // Xóa triệt để autofill của trình duyệt trên thanh tìm kiếm
+        setTimeout(() => {
+            const searchInput = document.getElementById('globalSearchInput');
+            if (searchInput) searchInput.value = '';
+        }, 500);
     } else {
         AuthModule.renderLogin();
     }
 }
 
-
-// --- 8. GLOBAL HOOKS & EXPORTS ---
+// 8. GLOBAL HOOKS & EXPORTS 
 
 // Gán toàn bộ Module vào window để gọi từ HTML/Templates
 window.AuthModule = AuthModule;
@@ -788,29 +772,82 @@ window.switchView = switchView;
 window.handleSearchFocus = SearchModule.handleSearchFocus;
 window.handleSearchInput = SearchModule.handleSearchInput;
 
-// [NEW] REPORT MODAL LOGIC (Appended)
 window.openReportModal = function (targetType, targetId) {
-    const tpl = document.getElementById('tpl-report-modal');
-    if (!tpl) {
-        console.error("Report template not found!");
-        return;
-    }
+    const htmlContent = `
+        <div class="p-6">
+            <h3 class="text-xl font-bold bg-gradient-to-r from-red-600 to-pink-600 bg-clip-text text-transparent mb-4">
+                📢 Báo cáo vi phạm</h3>
+            <form id="reportForm" onsubmit="window.handleReportSubmit(event)">
+                <input type="hidden" id="reportTargetType" value="${targetType}">
+                <input type="hidden" id="reportTargetId" value="${targetId}">
 
-    // Convert DocumentFragment to HTML string
-    const tempDiv = document.createElement('div');
-    tempDiv.appendChild(tpl.content.cloneNode(true));
-    const htmlContent = tempDiv.innerHTML;
+                <div class="space-y-3 mb-4 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                    <p class="font-medium text-slate-700 dark:text-slate-300">Vui lòng chọn lý do vi phạm:</p>
 
-    // Open modal with HTML string
+                    <label class="flex items-start p-3 border dark:border-slate-600 rounded-lg cursor-pointer hover:bg-red-50 dark:hover:bg-slate-700 transition group">
+                        <input type="radio" name="reason" value="spam" class="mt-1 w-4 h-4 text-red-600 focus:ring-red-500" checked>
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800 dark:text-slate-200 group-hover:text-red-700 dark:group-hover:text-red-400">
+                                🚫 Nội dung rác (Spam)</div>
+                            <div class="text-xs text-slate-500 dark:text-slate-400">Đăng tải quá nhiều nội dung lặp lại, quảng cáo trái phép</div>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-red-50 transition">
+                        <input type="radio" name="reason" value="hate_speech" class="mt-1 w-4 h-4 text-red-600">
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800">😡 Ngôn từ gây thù ghét</div>
+                            <div class="text-xs text-slate-500">Phân biệt đối xử về chủng tộc, tôn giáo, giới tính</div>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-red-50 transition">
+                        <input type="radio" name="reason" value="harassment" class="mt-1 w-4 h-4 text-red-600">
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800">⚠️ Quấy rối và bắt nạt</div>
+                            <div class="text-xs text-slate-500">Đe dọa, làm phiền người dùng khác</div>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-red-50 transition">
+                        <input type="radio" name="reason" value="sensitive_content" class="mt-1 w-4 h-4 text-red-600">
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800">🔞 Nội dung nhạy cảm/Bạo lực</div>
+                            <div class="text-xs text-slate-500">Hình ảnh khiêu dâm, bạo lực máu me</div>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-red-50 transition">
+                        <input type="radio" name="reason" value="impersonation" class="mt-1 w-4 h-4 text-red-600">
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800">👤 Mạo danh</div>
+                            <div class="text-xs text-slate-500">Giả mạo tài khoản người khác</div>
+                        </div>
+                    </label>
+
+                    <label class="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-red-50 transition">
+                        <input type="radio" name="reason" value="privacy_violation" class="mt-1 w-4 h-4 text-red-600">
+                        <div class="ml-3">
+                            <div class="font-bold text-sm text-slate-800">🔒 Vi phạm quyền riêng tư</div>
+                            <div class="text-xs text-slate-500">Chia sẻ thông tin cá nhân khi chưa được phép (Doxxing)</div>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="mb-4">
+                    <label for="reportDescription" class="block mb-2 text-sm font-medium text-slate-700">Mô tả chi tiết (Tùy chọn):</label>
+                    <textarea id="reportDescription" rows="3" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:ring-red-500 focus:border-red-500" placeholder="Hãy mô tả thêm về vấn đề bạn gặp phải..."></textarea>
+                </div>
+
+                <div class="flex justify-end gap-2">
+                    <button type="button" onclick="window.closeModal()" class="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200">Hủy</button>
+                    <button type="submit" class="px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 shadow-md transition transform active:scale-95">Gửi báo cáo</button>
+                </div>
+            </form>
+        </div>
+    `;
+
     window.openModal('Báo cáo vi phạm', htmlContent);
-
-    // Set hidden values after modal is rendered
-    setTimeout(() => {
-        const targetTypeInput = document.getElementById('reportTargetType');
-        const targetIdInput = document.getElementById('reportTargetId');
-        if (targetTypeInput) targetTypeInput.value = targetType;
-        if (targetIdInput) targetIdInput.value = targetId;
-    }, 0);
 };
 
 window.handleReportSubmit = async function (e) {
@@ -848,7 +885,7 @@ window.handleReportSubmit = async function (e) {
     }
 };
 
-// --- 7. MAINTENANCE MODE UTILS ---
+//7. MAINTENANCE MODE UTILS
 window.renderMaintenance = function (message) {
     const app = document.getElementById('app');
     if (!app) return;
@@ -889,11 +926,11 @@ io.on('maintenance_mode', (isActive) => {
     }
 });
 
-// [NEW] Active State Logic
-export function updateHeaderActiveState(view) {
+// Active State Logic
+export function updateHeaderActiveState(view) {// Cập nhật trạng thái header
     if (!view) return;
-    const viewName = view.split('_')[0];
-    const mapping = {
+    const viewName = view.split('_')[0];// Lấy tên view
+    const mapping = {// Tạo mapping
         'home': 'nav-btn-home',
         'pages': 'nav-btn-pages',
         'notifications': 'nav-btn-notifications',
@@ -902,22 +939,25 @@ export function updateHeaderActiveState(view) {
         'settings': 'nav-btn-settings'
     };
 
-    // Reset all
-    document.querySelectorAll('.nav-btn').forEach(btn => {
+    document.querySelectorAll('.nav-btn').forEach(btn => {// Reset tất cả
         btn.classList.remove('bg-blue-100', 'text-blue-600', 'dark:bg-blue-900', 'dark:text-white', 'shadow-inner');
         btn.classList.add('hover:bg-slate-100', 'dark:hover:bg-slate-800', 'text-slate-600', 'dark:text-slate-400');
     });
 
-    // Set active
-    const activeBtnId = mapping[viewName];
-    if (activeBtnId) {
-        const btn = document.getElementById(activeBtnId);
-        if (btn) {
+    const activeBtnId = mapping[viewName];// Lấy id button active
+    if (activeBtnId) {// Nếu có id button active
+        const btn = document.getElementById(activeBtnId);// Lấy button active
+        if (btn) {// Nếu có button active
             btn.classList.remove('hover:bg-slate-100', 'dark:hover:bg-slate-800', 'text-slate-600', 'dark:text-slate-400');
             btn.classList.add('bg-blue-100', 'text-blue-600', 'dark:bg-blue-900', 'dark:text-white', 'shadow-inner');
         }
     }
 }
 window.updateHeaderActiveState = updateHeaderActiveState;
+
+// Close modal on Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') window.closeModal();
+});
 
 document.addEventListener('DOMContentLoaded', initializeApp);

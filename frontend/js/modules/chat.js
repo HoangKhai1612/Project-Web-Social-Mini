@@ -1,28 +1,24 @@
 // frontend/js/modules/chat.js
 
-import { API_URL, showToast, defaultConfig, io, getAvatarUrl, apiFetch } from '../main.js';
+import { API_URL, showToast, defaultConfig, getAvatarUrl, apiFetch, io } from '../main.js';
 
-const getConfig = () => window.elementSdk?.config || defaultConfig;
+const getConfig = () => window.elementSdk?.config || defaultConfig;// Lấy config từ SDK
 
-let currentChatTarget = null;
-let selectedMembers = [];
-let currentChatSettings = {}; // Lưu trữ role và trạng thái quan hệ từ server
+let currentChatTarget = null;// Target chat hiện tại
+let selectedMembers = [];// Danh sách thành viên đã chọn
+let currentChatSettings = {};// Lưu trữ role và trạng thái quan hệ từ server
 
-// --- State cho Tìm kiếm Sidebar ---
-let currentChatTab = 'friends';
-let chatSearchQuery = '';
+//State cho Tìm kiếm Sidebar
+let currentChatTab = 'friends';// Tab chat hiện tại
+let chatSearchQuery = '';// Text tìm kiếm
 let recentExpanded = false;
 let historyExpanded = false;
 let isChatSearchActive = false;
 let chatListData = []; // Lưu trữ dữ liệu gốc để tìm kiếm client-side
 
-// ============================================
-// HÀM CHUNG CHO CÁC TAB CHAT (SIDEBAR)
-// ============================================
-
-export async function switchChatTab(tabName) {
+export async function switchChatTab(tabName) {// HÀM CHUNG CHO CÁC TAB CHAT (SIDEBAR)
     currentChatTab = tabName;
-    const tabs = ['friends', 'groups', 'strangers', 'archived'];
+    const tabs = ['friends', 'groups', 'strangers', 'archived'];// Danh sách tab chat
     const listContainer = document.getElementById('chatList');
     if (!listContainer) return;
 
@@ -42,17 +38,14 @@ export async function switchChatTab(tabName) {
     await renderChatList();
 }
 
-/**
- * @desc Bật/Tắt chế độ tìm kiếm ở sidebar
- */
-export function toggleChatSearch() {
+export function toggleChatSearch() {// Bật/Tắt chế độ tìm kiếm ở sidebar
     isChatSearchActive = !isChatSearchActive;
     const container = document.getElementById('chatSearchContainer');
-    if (container) {
+    if (container) {// Hiển thị/ẩn container tìm kiếm
         container.classList.toggle('hidden', !isChatSearchActive);
-        if (isChatSearchActive) {
+        if (isChatSearchActive) {// FOCUS khi mở tìm kiếm
             document.getElementById('chatSidebarSearch')?.focus();
-        } else {
+        } else {// Reset khi đóng tìm kiếm
             chatSearchQuery = '';
             const input = document.getElementById('chatSidebarSearch');
             if (input) input.value = '';
@@ -61,15 +54,12 @@ export function toggleChatSearch() {
     renderChatList();
 }
 
-/**
- * @desc Xử lý khi gõ vào ô tìm kiếm ở sidebar
- */
-export async function handleChatSidebarSearch(query) {
+export async function handleChatSidebarSearch(query) {// Xử lý khi gõ vào ô tìm kiếm ở sidebar
     chatSearchQuery = query.toLowerCase().trim();
     renderChatList();
 }
 
-async function renderChatList() {
+async function renderChatList() {// Render danh sách chat
     const container = document.getElementById('chatList');
     if (!container) return;
 
@@ -121,13 +111,13 @@ async function renderChatList() {
     }
 }
 
-async function renderChatDefaultView(container) {
-    const userId = window.currentUser?.userId;
+async function renderChatDefaultView(container) {// Render view mặc định
+    const userId = window.currentUser?.userId;// Lấy ID người dùng
 
     // FETCH LỊCH SỬ TÌM KIẾM (Chỉ lấy source: chat)
     let history = [];
     try {
-        const res = await apiFetch(`/search/history?userId=${userId}&source=chat`);
+        const res = await apiFetch(`/search/history?userId=${userId}&source=chat`);// Lấy lịch sử tìm kiếm
         if (res) {
             const data = await res.json();
             const rawHistory = data.history || [];
@@ -179,14 +169,14 @@ async function renderChatDefaultView(container) {
     container.innerHTML = html;
 }
 
-function renderHistorySectionItems(history) {
+function renderHistorySectionItems(history) {// Render các mục trong section lịch sử tìm kiếm
     if (!history || history.length === 0) {
         return `<div class="px-6 py-4 text-xs text-gray-400 italic">Trống.</div>`;
     }
 
-    const limit = historyExpanded ? history.length : 5;
-    const itemsToShow = history.slice(0, limit);
-    const hasMore = history.length > 5;
+    const limit = historyExpanded ? history.length : 5;// Giới hạn số mục hiển thị
+    const itemsToShow = history.slice(0, limit);// Lấy số mục cần hiển thị
+    const hasMore = history.length > 5;// Kiểm tra có còn mục nào chưa hiển thị
 
     let html = itemsToShow.map(item => `
         <div class="group flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition cursor-pointer">
@@ -200,7 +190,7 @@ function renderHistorySectionItems(history) {
         </div>
     `).join('');
 
-    if (hasMore) {
+    if (hasMore) {// Hiển thị nút xem thêm nếu có còn mục nào chưa hiển thị
         html += `
             <div class="px-4 py-2 text-center">
                 <button onclick="window.ChatModule.toggleHistoryExpansion()" class="text-[11px] font-bold text-blue-600 hover:underline">
@@ -219,7 +209,7 @@ async function addToChatHistory(itemId, itemName, itemType) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                userId: window.currentUser.userId,
+                userId: (window.currentUser.id || window.currentUser.userId),
                 itemId,
                 itemName,
                 itemType,
@@ -229,30 +219,30 @@ async function addToChatHistory(itemId, itemName, itemType) {
     } catch (e) { }
 }
 
-export function toggleRecentExpansion() {
+export function toggleRecentExpansion() {// Bật/tắt xem thêm tin nhắn gần đây
     recentExpanded = !recentExpanded;
     renderChatList();
 }
 
-export function toggleHistoryExpansion() {
+export function toggleHistoryExpansion() {// Bật/tắt xem thêm tin nhắn gần đây
     historyExpanded = !historyExpanded;
     renderChatList();
 }
 
-export async function deleteHistoryItemChat(id, e) {
+export async function deleteHistoryItemChat(id, e) {// Xóa 1 mục lịch sử theo ID
     if (e) e.stopPropagation();
     try {
-        const res = await apiFetch(`/search/history/${id}?userId=${window.currentUser.userId}`, { method: 'DELETE' });
+        const res = await apiFetch(`/search/history/${id}?userId=${(window.currentUser.id || window.currentUser.userId)}`, { method: 'DELETE' });
         if (res && res.ok) {
             renderChatList();
         }
     } catch (e) { }
 }
 
-export async function clearHistoryChat() {
+export async function clearHistoryChat() {// Xóa toàn bộ lịch sử tìm kiếm
     if (!confirm("Xóa toàn bộ lịch sử tìm kiếm?")) return;
     try {
-        const res = await apiFetch(`/search/history?userId=${window.currentUser.userId}&source=chat`, { method: 'DELETE' });
+        const res = await apiFetch(`/search/history?userId=${(window.currentUser.id || window.currentUser.userId)}&source=chat`, { method: 'DELETE' });
         if (res && res.ok) {
             renderChatList();
         }
@@ -265,11 +255,11 @@ export function openFromHistory(id, name, type) {
     window.ChatModule.openChat(id, name, isGroup);
 }
 
-function renderChatListItem(item, type) {
+function renderChatListItem(item, type) {// Render 1 mục trong list chat
     const isGroup = (type === 'groups');
-    const name = item.full_name || item.name || "Người dùng";
-    const id = item.id;
-    const isOnline = !isGroup && window.onlineUsersSet.has(String(id));
+    const name = item.full_name || item.name || "Người dùng";// Tự động lấy tên
+    const id = item.id;// Lấy ID
+    const isOnline = !isGroup && window.onlineUsersSet.has(String(id));// Kiểm tra online
 
     return `
         <div onclick="window.ChatModule.openChat('${id}', '${name}', ${isGroup})"
@@ -278,7 +268,7 @@ function renderChatListItem(item, type) {
             <div class="flex items-center gap-3">
                 ${isGroup
             ? `<img src="${item.avatar ? `${window.IO_URL}/${item.avatar}` : 'images/default_group_chat.png'}" class="w-10 h-10 rounded-xl object-cover border border-gray-200 flex-shrink-0 bg-white dark:bg-slate-800">`
-            : getAvatarWithStatusHtml(id, item.avatar, item.gender, 'w-10 h-10')
+            : getAvatarWithStatusHtml(id, item.avatar, item.gender, 'w-10 h-10')// Hiển thị avatar
         }
                 <div class="overflow-hidden">
                     <div class="font-semibold text-sm truncate text-slate-800">${name}</div>
@@ -297,39 +287,36 @@ function renderChatListItem(item, type) {
  */
 export function updateOnlineStatus(userId, status) {
     if (status === 'online') {
-        window.onlineUsersSet.add(String(userId));
+        window.onlineUsersSet.add(String(userId));// Thêm vào set
     } else {
-        window.onlineUsersSet.delete(String(userId));
+        window.onlineUsersSet.delete(String(userId));// Xóa khỏi set
     }
 
     // Cập nhật DOM trực tiếp nếu phần tử đang hiển thị
-    const itemEl = document.getElementById(`chat-item-${userId}`);
+    const itemEl = document.getElementById(`chat-item-${userId}`);// Lấy element
     if (itemEl) {
-        const avatarContainer = itemEl.querySelector('.avatar-small');
+        const avatarContainer = itemEl.querySelector('.avatar-small');// Lấy container avatar
         if (avatarContainer) {
-            let dot = avatarContainer.querySelector('.bg-green-500');
+            let dot = avatarContainer.querySelector('.bg-green-500');// Lấy dot online
             if (status === 'online' && !dot) {
-                const dotEl = document.createElement('div');
+                const dotEl = document.createElement('div');// Tạo dot online
                 dotEl.className = 'absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full';
-                avatarContainer.appendChild(dotEl);
+                avatarContainer.appendChild(dotEl);// Thêm dot vào container
             } else if (status === 'offline' && dot) {
-                dot.remove();
+                dot.remove();// Xóa dot
             }
         }
     }
 }
 
-// ============================================
-// HÀM MỞ ĐOẠN CHAT (CHI TIẾT)
-// ============================================
-
+// HÀM MỞ ĐOẠN CHAT
 export async function openChat(targetId, targetName, isGroup = false) {
-    const chatContainer = document.getElementById('mainContent');
+    const chatContainer = document.getElementById('mainContent');// Lấy container chat
     if (!chatContainer) return;
 
-    currentChatTarget = targetId;
-    window.activeChat = targetId;
-    window.isCurrentChatGroup = isGroup;
+    currentChatTarget = targetId;// Cập nhật target
+    window.activeChat = targetId;// Cập nhật active chat
+    window.isCurrentChatGroup = isGroup;// Cập nhật is group
 
     window.ChatModule.markChatAsReadAPI(targetId);
 
@@ -343,13 +330,13 @@ export async function openChat(targetId, targetName, isGroup = false) {
 
     addToChatHistory(targetId, targetName, chatType);
 
-    // [New] Tìm thông tin avatar từ danh sách chat hiện có (cache) để hiển thị ngay ở Header
+    // Tìm thông tin avatar từ danh sách chat hiện có để hiển thị ngay ở Header
     // Nếu không tìm thấy (ví dụ mở từ link share), sẽ hiển thị default hoặc cập nhật sau khi load API
     const targetItem = chatListData.find(i => String(i.id) === String(targetId));
     const targetAvatar = targetItem ? targetItem.avatar : null;
     const targetGender = targetItem ? targetItem.gender : 'Other';
 
-    // [NEW] Reset trạng thái tìm kiếm sau khi chọn người/nhóm
+    // Reset trạng thái tìm kiếm sau khi chọn người/nhóm
     if (isChatSearchActive) {
         isChatSearchActive = false;
         chatSearchQuery = '';
@@ -360,18 +347,18 @@ export async function openChat(targetId, targetName, isGroup = false) {
         renderChatList(); // Quay về danh sách bình thường
     }
 
-    chatContainer.innerHTML = renderChatDetailShell(targetId, targetName, isGroup, targetAvatar, targetGender);
+    chatContainer.innerHTML = renderChatDetailShell(targetId, targetName, isGroup, targetAvatar, targetGender);// Render chat detail
 
-    await loadChatHistory(targetId, isGroup);
+    await loadChatHistory(targetId, isGroup);// Load chat history
 }
 
 let replyingTo = null; // Lưu tin nhắn đang được reply
 
 function renderChatDetailShell(targetId, targetName, isGroup, avatar, gender) {
-    const config = getConfig();
+    const config = getConfig();// Lấy config
     const avatarHtml = isGroup
         ? `<img src="${avatar ? `${window.IO_URL}/${avatar}` : 'images/default_group_chat.png'}" id="chatHeaderAvatar" class="w-10 h-10 rounded-xl object-cover border border-gray-200 bg-white dark:bg-slate-800">`
-        : getAvatarWithStatusHtml(targetId, avatar, gender, 'w-10 h-10');
+        : getAvatarWithStatusHtml(targetId, avatar, gender, 'w-10 h-10');// Lấy avatar
 
     return `
         <div class="flex flex-col h-full relative bg-white dark:bg-slate-900 transition-colors duration-300">
@@ -412,7 +399,7 @@ function renderChatDetailShell(targetId, targetName, isGroup, avatar, gender) {
                     <input type="text" id="chatMessageInput" placeholder="Nhập tin nhắn..." 
                            class="flex-1 p-2.5 bg-slate-100 dark:bg-slate-800 dark:text-white border-none rounded-2xl px-5 outline-none focus:ring-2 focus:ring-blue-400/50 transition placeholder-slate-400 dark:placeholder-slate-500"
                            onkeypress="if(event.key === 'Enter') { event.preventDefault(); window.ChatModule.sendMessage(); }">
-                    <button type="button" onclick="window.ChatModule.sendMessage()" id="sendBtn" class="px-6 py-2.5 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 dark:shadow-none transition active:scale-95 bg-blue-600 hover:bg-blue-700">Gửi</button>
+                    <button type="button" onclick="event.preventDefault(); window.ChatModule.sendMessage()" id="sendBtn" class="px-6 py-2.5 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 dark:shadow-none transition active:scale-95 bg-blue-600 hover:bg-blue-700">Gửi</button>
                 </div>
             </div>
         </div>
@@ -427,7 +414,7 @@ async function loadChatHistory(targetId, isGroup = false) {
     if (!messageList) return;
 
     try {
-        const userId = window.currentUser.userId;
+        const userId = (window.currentUser.id || window.currentUser.userId);
         const res = await apiFetch(`/chat/${targetId}?user_id=${userId}&is_group=${isGroup}`);
         if (!res) return;
         const data = await res.json();
@@ -438,7 +425,7 @@ async function loadChatHistory(targetId, isGroup = false) {
             // Cập nhật tên Header (Dùng display_name - Biệt danh từ Server)
             if (headerName) headerName.innerText = isGroup ? (currentChatSettings.group_name || "Nhóm") : (currentChatSettings.display_name);
 
-            // [NEW] Cập nhật Avatar Header nếu là Group
+            // Cập nhật Avatar Header nếu là Group
             if (isGroup && currentChatSettings.avatar) {
                 const avatarEl = document.getElementById('chatHeaderAvatar');
                 if (avatarEl) avatarEl.src = `${window.IO_URL}/${currentChatSettings.avatar}`;
@@ -459,7 +446,7 @@ async function loadChatHistory(targetId, isGroup = false) {
                 if (sendBtn) sendBtn.style.opacity = "1";
             }
 
-            // [NEW] Logic Grouping: Chỉ hiển thị avatar ở tin nhắn CUỐI CÙNG của một chuỗi tin nhắn liên tiếp từ cùng một người
+            // Logic Grouping: Chỉ hiển thị avatar ở tin nhắn CUỐI CÙNG của một chuỗi tin nhắn liên tiếp từ cùng một người
             let htmlContent = '';
             let lastDate = null;
             const messages = data.messages || [];
@@ -478,7 +465,7 @@ async function loadChatHistory(targetId, isGroup = false) {
                 // Nếu KHÔNG (tức là đổi người hoặc hết tin), thì đây là tin cuối cùng của group -> Hiện avatar
                 const isLastInGroup = !nextMsg || String(nextMsg.sender_id) !== String(msg.sender_id);
 
-                // [NEW] Kiểm tra tin nhắn ĐẦU TIÊN của group -> Hiện nickname
+                // Kiểm tra tin nhắn ĐẦU TIÊN của group -> Hiện nickname
                 const prevMsg = messages[i - 1];
                 const isFirstInGroup = !prevMsg || String(prevMsg.sender_id) !== String(msg.sender_id);
 
@@ -512,7 +499,7 @@ function renderSettingsMenu(isGroup) {
         `;
     } else {
         const isBlocked = currentChatSettings.is_blocked;
-        const blockedByMe = isBlocked && String(currentChatSettings.blocked_by) === String(window.currentUser.userId);
+        const blockedByMe = isBlocked && String(currentChatSettings.blocked_by) === String((window.currentUser.id || window.currentUser.userId));
 
         content.innerHTML = `
             <div class="text-[10px] font-black text-slate-400 px-3 py-2 uppercase border-b mb-1">Tùy chọn</div>
@@ -526,23 +513,17 @@ function renderSettingsMenu(isGroup) {
     }
 }
 
-
-
-// Tìm hàm renderMessage trong chat.js và cập nhật đoạn xử lý content:
 function renderMessage(msg, showAvatar = true, isFirstInGroup = false, isGroupChat = false) {
-    // 0. Kiểm tra người gửi để căn lề trái/phải
-    const isSender = String(msg.sender_id) === String(window.currentUser.userId);
+    // Kiểm tra người gửi để căn lề trái/phải
+    const isSender = String(msg.sender_id) === String((window.currentUser.id || window.currentUser.userId));
 
     // Thiết lập class cho bong bóng chat
-    // [Request 4] Chat của mình bên phải, đối phương bên trái (Đã có sẵn logic items-end / items-start)
     const bubbleClass = isSender
         ? 'bg-blue-600 text-white rounded-2xl border border-transparent'
         : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm';
 
-    // [Request 5] Avatar cho tin nhắn (Chỉ hiện nếu showAvatar = true)
-    // Nếu là sender (mình) thì User không yêu cầu hiện avatar của mình trong chat, chỉ đối phương.
-    // Tuy nhiên đề bài nói: "tôi muốn trên phần tên bên cạnh tùy chon ở khung chat, tôi muốn hiển thị avatar của dối phương và cả ở mỗi dòng tin nhắn cũng sẽ có"
-    // -> Đối phương có avatar.
+    // Avatar cho tin nhắn (Chỉ hiện nếu showAvatar = true)
+    // Nếu là sender thì User không yêu cầu hiện avatar của mình trong chat, chỉ đối phương.
     const avatarHtml = (!isSender && showAvatar)
         ? `<div class="self-end mb-1 mr-2 flex-shrink-0">
                ${getAvatarWithStatusHtml(msg.sender_id, msg.sender_avatar, msg.sender_gender, 'w-8 h-8')}
@@ -551,7 +532,7 @@ function renderMessage(msg, showAvatar = true, isFirstInGroup = false, isGroupCh
 
     let content = msg.message || '';
 
-    // 1. Xử lý hiển thị Tin nhắn đang trả lời (Reply)
+    // Xử lý hiển thị Tin nhắn đang trả lời (Reply)
     let replyHtml = '';
     if (msg.reply_content) {
         replyHtml = `
@@ -560,11 +541,11 @@ function renderMessage(msg, showAvatar = true, isFirstInGroup = false, isGroupCh
                 <span class="font-bold block text-[10px] mb-0.5">Trả lời:</span>
                 ${msg.reply_content}
                 ${msg.reply_media_url ? '<span class="text-[9px] text-blue-500 block">[Hình ảnh]</span>' : ''}
-            </div>
+            </div
         `;
     }
 
-    // 2. Xử lý hiển thị Ảnh (Media)
+    // Xử lý hiển thị Ảnh 
     let mediaHtml = '';
     if (msg.media_url) {
         // Nếu link bắt đầu bằng 'uploads/', ta phải nối với domain của Backend
@@ -574,7 +555,7 @@ function renderMessage(msg, showAvatar = true, isFirstInGroup = false, isGroupCh
             ? msg.media_url
             : `${backendUrl}/${msg.media_url}`;
 
-        // [Request 4] Chỉnh sửa lại việc gửi ảnh chiếm bao nhiêu khung chat -> Tăng max-width
+        // Chỉnh sửa lại việc gửi ảnh chiếm bao nhiêu khung chat -> Tăng max-width
         mediaHtml = `
             <div class="mb-2 overflow-hidden rounded-xl">
                 <img src="${fullImageUrl}" 
@@ -585,7 +566,7 @@ function renderMessage(msg, showAvatar = true, isFirstInGroup = false, isGroupCh
         `;
     }
 
-    // 3. Xử lý Cảm xúc (Reactions)
+    // Xử lý Cảm xúc (Reactions)
     let reactionsHtml = '';
     if (msg.reactions) {
         // Đảm bảo reactions là một Object
@@ -605,17 +586,16 @@ function renderMessage(msg, showAvatar = true, isFirstInGroup = false, isGroupCh
         }
     }
 
-    // 4. Logic nhận diện Card chia sẻ [Request 3]
+    // Logic nhận diện Card chia sẻ
     if (content.startsWith('[SHARE_CARD|')) {
-        // Format: [SHARE_CARD|TYPE|LINK|AVATAR|NAME]
         const parts = content.replace('[', '').replace(']', '').split('|');
         const shareType = parts[1] || 'LINK';
         const shareLink = parts[2] || '#';
-        const shareAvatar = parts[3] && parts[3] !== 'default' ? getAvatarUrl(parts[3], 'Other') : null; // Cần hàm getAvatarUrl global hoặc helper
+        const shareAvatar = parts[3] && parts[3] !== 'default' ? getAvatarUrl(parts[3], 'Other') : null;
         const shareName = parts[4] || (shareType === 'PROFILE' ? 'Trang cá nhân' : 'Bài đăng');
 
         const isProfile = shareType === 'PROFILE';
-        const icon = isProfile ? '👤' : '📝'; // Fallback icon
+        const icon = isProfile ? '👤' : '📝';
 
         // Layout Rich Card
         content = `
@@ -637,9 +617,7 @@ function renderMessage(msg, showAvatar = true, isFirstInGroup = false, isGroupCh
         `;
     }
 
-    /* ======================================================
-       [NEW] LOGIC HIỂN THỊ NICKNAME CHO GROUP CHAT
-       ====================================================== */
+    // Hiển thị nickname cho group chat
     let nicknameHtml = '';
     if (isGroupChat && isFirstInGroup && !isSender) {
         nicknameHtml = `<div class="text-[10px] text-gray-500 dark:text-gray-400 ml-1 mb-0.5">${msg.display_name || msg.sender_name}</div>`;
@@ -671,7 +649,7 @@ function renderMessage(msg, showAvatar = true, isFirstInGroup = false, isGroupCh
             if (msg.reactions) {
                 const reactionsObj = typeof msg.reactions === 'string' ? JSON.parse(msg.reactions) : msg.reactions;
                 for (const [emoji, users] of Object.entries(reactionsObj)) {
-                    if (users.includes(window.currentUser.userId)) {
+                    if (users.includes((window.currentUser.id || window.currentUser.userId))) {
                         myReaction = emoji;
                         break;
                     }
@@ -689,18 +667,13 @@ function renderMessage(msg, showAvatar = true, isFirstInGroup = false, isGroupCh
     `;
 }
 
-
-
-// ============================================
 // CÁC HÀM XỬ LÝ (EXPORT)
-// ============================================
-
-export function toggleChatSettings() {
+export function toggleChatSettings() {// Hiển thị/ẩn sidebar cài đặt
     const sidebar = document.getElementById('chatSettingsSidebar');
     if (sidebar) sidebar.classList.toggle('hidden');
 }
 
-export async function handleBlock(targetId, action) {
+export async function handleBlock(targetId, action) {// Xử lý chặn
     const confirmMsg = action === 'block' ? "Chặn người này? Họ sẽ không thể gửi tin nhắn cho bạn." : "Bỏ chặn người này?";
     if (!confirm(confirmMsg)) return;
 
@@ -708,7 +681,7 @@ export async function handleBlock(targetId, action) {
         const res = await apiFetch(`/chat/block`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: window.currentUser.userId, target_id: targetId, action })
+            body: JSON.stringify({ user_id: (window.currentUser.id || window.currentUser.userId), target_id: targetId, action })
         });
         if (res && res.ok) {
             showToast(action === 'block' ? "Đã chặn" : "Đã bỏ chặn", "info");
@@ -718,7 +691,7 @@ export async function handleBlock(targetId, action) {
     } catch (e) { showToast("Lỗi kết nối", "error"); }
 }
 
-export async function updateAlias() {
+export async function updateAlias() {// Cập nhật biệt danh
     toggleChatSettings();
     showInputModal("Đặt biệt danh", "Nhập biệt danh...", "", async (newAlias) => {
         try {
@@ -726,7 +699,7 @@ export async function updateAlias() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    user_id: window.currentUser.userId,
+                    user_id: (window.currentUser.id || window.currentUser.userId),
                     target_id: currentChatTarget,
                     field: 'alias',
                     value: newAlias,
@@ -742,7 +715,7 @@ export async function updateAlias() {
     });
 }
 
-export async function updateGroupName(groupId) {
+export async function updateGroupName(groupId) {// Cập nhật tên nhóm
     toggleChatSettings();
     showInputModal("Đổi tên nhóm", "Nhập tên mới cho nhóm...", "", async (newName) => {
         try {
@@ -750,7 +723,7 @@ export async function updateGroupName(groupId) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    user_id: window.currentUser.userId,
+                    user_id: (window.currentUser.id || window.currentUser.userId),
                     target_id: groupId,
                     field: 'name',
                     value: newName,
@@ -765,8 +738,7 @@ export async function updateGroupName(groupId) {
     });
 }
 
-// Helper: Custom Input Modal
-function showInputModal(title, placeholder, currentValue, onConfirm) {
+function showInputModal(title, placeholder, currentValue, onConfirm) {// Hiển thị modal nhập 
     const existing = document.getElementById('chatInputModal');
     if (existing) existing.remove();
 
@@ -822,7 +794,7 @@ export async function deleteChatConfirm(targetId) {
         const res = await apiFetch(`/chat/delete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: window.currentUser.userId, target_id: targetId })
+            body: JSON.stringify({ user_id: (window.currentUser.id || window.currentUser.userId), target_id: targetId })
         });
         if (res.ok) {
             showToast("Đã xóa sạch tin nhắn!");
@@ -832,11 +804,8 @@ export async function deleteChatConfirm(targetId) {
     } catch (e) { showToast("Lỗi khi xóa", "error"); }
 }
 
-// ============================================
 // QUẢN LÝ THÀNH VIÊN NHÓM
-// ============================================
-
-export async function viewMembers(groupId) {
+export async function viewMembers(groupId) {// Hiển thị thành viên nhóm
     toggleChatSettings();
     try {
         const res = await apiFetch(`/chat/group/${groupId}/members`);
@@ -844,7 +813,7 @@ export async function viewMembers(groupId) {
         const data = await res.json();
         if (!data.success) return;
 
-        const myRole = data.members.find(m => String(m.id) === String(window.currentUser.userId))?.role;
+        const myRole = data.members.find(m => String(m.id) === String((window.currentUser.id || window.currentUser.userId)))?.role;
         const isAdmin = (myRole === 'admin');
 
         let html = data.members.map(m => `
@@ -855,7 +824,7 @@ export async function viewMembers(groupId) {
                 </div>
                 <div class="flex gap-2">
                     <button onclick="window.ChatModule.promptMemberAlias('${groupId}', '${m.id}')" class="text-xs text-blue-500">Biệt danh</button>
-                    ${(isAdmin && String(m.id) !== String(window.currentUser.userId)) ?
+                    ${(isAdmin && String(m.id) !== String((window.currentUser.id || window.currentUser.userId))) ?
                 `<button onclick="window.ChatModule.removeMember('${groupId}', '${m.id}')" class="text-xs text-red-500 font-bold">Gỡ</button>` : ''}
                 </div>
             </div>
@@ -866,13 +835,30 @@ export async function viewMembers(groupId) {
 }
 
 export async function addMemberPrompt(groupId) {
+    console.log('[DEBUG] Opening addMemberPrompt for Group:', groupId);
     toggleChatSettings();
     selectedMembers = [];
     window.openModal('Thêm thành viên (Bạn bè)', `
         <div class="p-4 space-y-4">
-            <div id="selectedContainer" class="flex flex-wrap gap-2 p-2 border border-dashed rounded-xl min-h-[50px] text-xs text-gray-400 italic">Chọn bạn bè...</div>
-            <div id="friendInviteList" class="max-h-60 overflow-y-auto border border-slate-100 rounded-xl bg-slate-50 divide-y"></div>
-            <button onclick="window.ChatModule.submitAddMembers('${groupId}')" class="w-full p-3 bg-blue-600 text-white rounded-xl font-bold">Xác nhận</button>
+             <div class="relative">
+                 <input type="text" id="groupMemberSearchInput" placeholder="Tìm kiếm bạn bè..." 
+                        onkeyup="window.ChatModule.handleGroupFriendSearch(this.value)"
+                        class="w-full p-3 pl-10 border bg-slate-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white rounded-xl outline-none text-sm focus:bg-white dark:focus:bg-slate-800 transition focus:ring-2 focus:ring-blue-500">
+                 <span class="absolute left-3 top-3 text-slate-400">🔍</span>
+            </div>
+
+            <div id="selectedContainer" class="flex flex-wrap gap-2 p-3 border border-dashed border-slate-300 dark:border-slate-600 rounded-xl min-h-[50px] bg-slate-50 dark:bg-slate-800 text-xs italic text-slate-400">
+                Chọn người muốn thêm...
+            </div>
+
+            <div id="friendInviteList" class="max-h-60 overflow-y-auto border border-slate-100 dark:border-slate-700 rounded-xl divide-y dark:divide-slate-700 bg-white dark:bg-slate-800 custom-scrollbar">
+                <div class="p-4 text-center text-slate-400 text-sm">Đang tải danh sách...</div>
+            </div>
+
+            <button onclick="window.ChatModule.submitAddMembers('${groupId}')" 
+                    class="w-full p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 dark:shadow-none transition transform hover:scale-[1.02]">
+                Xác nhận thêm
+            </button>
         </div>
     `);
     loadFriendsNotInGroup(groupId);
@@ -882,21 +868,33 @@ async function loadFriendsNotInGroup(groupId) {
     const listEl = document.getElementById('friendInviteList');
     if (!listEl) return;
     try {
-        const userId = window.currentUser.userId;
+        const userId = (window.currentUser.id || window.currentUser.userId);
         const res = await apiFetch(`/chat/friends-not-in-group?user_id=${userId}&group_id=${groupId}&t=${Date.now()}`);
         if (!res) return;
         const data = await res.json();
-        if (!data.friends || data.friends.length === 0) {
-            listEl.innerHTML = `<div class="p-6 text-center text-sm italic text-gray-500">Hết bạn bè để thêm.</div>`;
+        console.log('[DEBUG] Friends list response:', data);
+
+        if (!data.success) {
+            showToast(`Lỗi: ${data.message || 'Server error'}`, 'error');
+            listEl.innerHTML = `<div class="p-6 text-center text-red-500">${data.message || 'Lỗi server'}</div>`;
             return;
         }
-        listEl.innerHTML = data.friends.map(f => `
-            <div onclick="window.ChatModule.toggleSelectMember('${f.id}', '${f.full_name}')" class="flex items-center gap-3 p-3 hover:bg-blue-50 cursor-pointer transition">
-                <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-xs">${f.full_name[0].toUpperCase()}</div>
-                <span class="text-sm font-medium text-slate-700">${f.full_name}</span>
-            </div>
-        `).join('');
-    } catch (e) { showToast("Lỗi tải bạn bè", "error"); }
+
+        // Use the shared variable so search works
+        groupCreationFriendsList = data.friends || [];
+        console.log('[DEBUG] groupCreationFriendsList count:', groupCreationFriendsList.length);
+
+        if (groupCreationFriendsList.length === 0) {
+            listEl.innerHTML = `<div class="p-6 text-center text-sm italic text-gray-500">Bạn chưa có bạn bè nào để thêm (hoặc chưa đồng bộ).</div>`;
+            return;
+        }
+
+        // Helper function from create-group flow works here too
+        renderGroupFriendList(groupCreationFriendsList);
+
+    } catch (e) {
+        listEl.innerHTML = `<div class="p-4 text-center text-red-400 text-sm">Lỗi tải danh sách.</div>`;
+    }
 }
 
 export async function removeMember(groupId, userIdToRemove) {
@@ -905,7 +903,7 @@ export async function removeMember(groupId, userIdToRemove) {
         const res = await apiFetch(`/chat/group/remove`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ groupId, userIdToRemove, requestorId: window.currentUser.userId })
+            body: JSON.stringify({ groupId, userIdToRemove, requestorId: (window.currentUser.id || window.currentUser.userId) })
         });
         if (!res) return;
         const data = await res.json();
@@ -921,7 +919,7 @@ export async function removeMember(groupId, userIdToRemove) {
 export async function leaveGroup(groupId) {
     toggleChatSettings();
     if (!confirm("Bạn muốn rời nhóm?")) return;
-    await removeMember(groupId, window.currentUser.userId);
+    await removeMember(groupId, (window.currentUser.id || window.currentUser.userId));
 }
 
 export async function promptMemberAlias(groupId, memberId) {
@@ -937,10 +935,7 @@ export async function promptMemberAlias(groupId, memberId) {
     } catch (e) { showToast("Lỗi"); }
 }
 
-// ============================================
 // CORE LOGIC: GỬI TIN & SOCKET & TẠO NHÓM
-// ============================================
-
 /**
  * @desc Gửi tin nhắn (bao gồm văn bản, ảnh, và reply)
  */
@@ -968,7 +963,7 @@ export async function sendMessage() {
             formData.append('image', mediaInput.files[0]);
 
             // Gửi kèm type=message và user_id qua query string để Multer lưu đúng thư mục messages
-            const uploadRes = await apiFetch(`/chat/upload-media?type=message&user_id=${window.currentUser.userId}`, {
+            const uploadRes = await apiFetch(`/chat/upload-media?type=message&user_id=${(window.currentUser.id || window.currentUser.userId)}`, {
                 method: 'POST',
                 body: formData
             });
@@ -977,7 +972,6 @@ export async function sendMessage() {
 
             if (uploadData.success) {
                 /**
-                 * ✅ QUAN TRỌNG: 
                  * Ta lấy 'relativePath' (ví dụ: uploads/messages/abc.png) để gửi qua Socket.
                  * Việc này giúp Database lưu trữ đường dẫn tương đối ổn định.
                  */
@@ -989,7 +983,7 @@ export async function sendMessage() {
 
         // 4. Chuẩn bị dữ liệu Payload để gửi qua Socket.io
         const payload = {
-            senderId: window.currentUser.userId,
+            senderId: (window.currentUser.id || window.currentUser.userId),
             receiverId: currentChatTarget,
             message: message,
             mediaUrl: mediaUrlForPayload, // Đường dẫn ảnh (nếu có)
@@ -1126,7 +1120,7 @@ export async function sendReaction(messageId, emoji, el) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messageId,
-                userId: window.currentUser.userId,
+                userId: (window.currentUser.id || window.currentUser.userId),
                 emoji
             })
         });
@@ -1163,36 +1157,21 @@ export function scrollToMessage(messageId) {
     }
 }
 
-export function displayMessage(data, isSelf) {
-
+export function displayMessage(data, isSelf) {// Hiển thị tin nhắn
     const messageList = document.getElementById('messageList');
-
     if (!messageList) return;
-
     const isCurrent = (String(data.receiverId) === String(currentChatTarget) || String(data.senderId) === String(currentChatTarget));
-
     if (isCurrent || isSelf) {
-
         messageList.innerHTML += renderMessage({
-
             sender_id: data.senderId,
-
             sender_name: data.sender_name,
-
             display_name: data.display_name,
-
             message: data.message,
-
             created_at: new Date()
-
         });
-
         messageList.scrollTop = messageList.scrollHeight;
-
         if (!isSelf) markChatAsReadAPI(data.senderId);
-
     }
-
 }
 
 /**
@@ -1204,7 +1183,7 @@ export function initSocketListeners() {
     // Lắng nghe tin nhắn mới
     io.off('receive_message').on('receive_message', (data) => {
         const isMatch = (String(data.receiverId) === String(currentChatTarget) ||
-            String(data.senderId) === String(currentChatTarget));
+            String(data.senderId) === String(currentChatTarget));// Kiểm tra tin nhắn có phải là tin nhắn trong phòng chat hiện tại
 
         if (isMatch) {
             // Thêm tin nhắn vào giao diện (Hàm renderMessage cần được định nghĩa ở ngoài)
@@ -1214,7 +1193,7 @@ export function initSocketListeners() {
                 messageList.scrollTop = messageList.scrollHeight;
 
                 // Nếu mình là người nhận, đánh dấu đã đọc
-                if (String(data.senderId) !== String(window.currentUser.userId)) {
+                if (String(data.senderId) !== String((window.currentUser.id || window.currentUser.userId))) {
                     markChatAsReadAPI(data.senderId);
                 }
             }
@@ -1230,51 +1209,155 @@ export function initSocketListeners() {
     });
 }
 
+let groupCreationFriendsList = [];
+
 export function showCreateGroupModal() {
     selectedMembers = [];
     window.openModal('Tạo nhóm mới (≥ 3 người)', `
         <div class="p-4 space-y-4">
-            <input type="text" id="groupNameInput" placeholder="Tên nhóm..." class="w-full p-3 border bg-slate-100 rounded-xl outline-none">
-            <div id="selectedContainer" class="flex flex-wrap gap-2 p-3 border border-dashed rounded-xl min-h-[70px] bg-slate-50 text-xs italic text-center">Chọn ít nhất 2 bạn bè</div>
-            <div id="friendInviteList" class="max-h-48 overflow-y-auto border border-slate-100 rounded-xl divide-y bg-white"></div>
-            <button onclick="window.ChatModule.submitCreateGroup()" class="w-full p-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200">Bắt đầu trò chuyện nhóm</button>
+            <input type="text" id="groupNameInput" placeholder="Tên nhóm..." 
+                   class="w-full p-3 border bg-slate-100 dark:bg-slate-700 dark:border-slate-600 dark:text-white rounded-xl outline-none transition focus:ring-2 focus:ring-blue-500">
+            
+            <div class="relative">
+                 <input type="text" id="groupMemberSearchInput" placeholder="Tìm kiếm bạn bè..." 
+                        onkeyup="window.ChatModule.handleGroupFriendSearch(this.value)"
+                        class="w-full p-3 pl-10 border bg-slate-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white rounded-xl outline-none text-sm focus:bg-white dark:focus:bg-slate-800 transition focus:ring-2 focus:ring-blue-500">
+                 <span class="absolute left-3 top-3 text-slate-400">🔍</span>
+            </div>
+
+            <!-- Selected Members Container -->
+            <div id="selectedContainer" class="flex flex-wrap gap-2 p-3 border border-dashed border-slate-300 dark:border-slate-600 rounded-xl min-h-[50px] bg-slate-50 dark:bg-slate-800 text-xs italic text-slate-400">
+                Chưa chọn thành viên nào...
+            </div>
+            
+            <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mt-2">Danh sách bạn bè</div>
+            <div id="friendInviteList" class="max-h-60 overflow-y-auto border border-slate-100 dark:border-slate-700 rounded-xl divide-y dark:divide-slate-700 bg-white dark:bg-slate-800 custom-scrollbar">
+                <div class="p-4 text-center text-slate-400 text-sm">Đang tải danh sách...</div>
+            </div>
+            
+            <button onclick="window.ChatModule.submitCreateGroup()" 
+                    class="w-full p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 dark:shadow-none transition transform hover:scale-[1.02]">
+                Bắt đầu trò chuyện nhóm
+            </button>
         </div>
     `);
     loadFriendsForGroup();
 }
 
-async function loadFriendsForGroup() {
+async function loadFriendsForGroup() {// Lấy danh sách bạn bè để tạo nhóm
     try {
-        const res = await fetch(`${API_URL}/users/friends?user_id=${window.currentUser.userId}`);
-        const friends = await res.json();
+        const res = await apiFetch(`/users/friends?user_id=${(window.currentUser.id || window.currentUser.userId)}`);
+        if (!res || !res.ok) throw new Error("Failed to load");
+        groupCreationFriendsList = await res.json();
+
+        // Render initial list
+        renderGroupFriendList(groupCreationFriendsList);
+    } catch (e) {
         const listEl = document.getElementById('friendInviteList');
-        if (!listEl) return;
-        listEl.innerHTML = friends.map(f => `
-            <div onclick="window.ChatModule.toggleSelectMember('${f.id}', '${f.full_name}')" class="flex items-center gap-3 p-3 hover:bg-blue-50 cursor-pointer transition">
-                <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-xs">${f.full_name[0].toUpperCase()}</div>
-                <span class="text-sm font-medium text-slate-700">${f.full_name}</span>
+        if (listEl) listEl.innerHTML = `<div class="p-4 text-center text-red-400 text-sm">Lỗi tải danh sách bạn bè.</div>`;
+    }
+}
+
+// Xử lý tìm kiếm bạn bè trong danh sách tạo nhóm
+export function handleGroupFriendSearch(query) {
+    if (!query) {
+        renderGroupFriendList(groupCreationFriendsList);
+        return;
+    }
+    const lower = query.toLowerCase();
+    const filtered = groupCreationFriendsList.filter(f =>
+        f.full_name.toLowerCase().includes(lower) ||
+        (f.username && f.username.toLowerCase().includes(lower))
+    );// Lọc danh sách bạn bè
+    renderGroupFriendList(filtered);
+}
+
+function renderGroupFriendList(list) {// Hiển thị danh sách bạn bè trong modal tạo nhóm
+    const listEl = document.getElementById('friendInviteList');
+    if (!listEl) return;
+
+    if (!list || list.length === 0) {
+        listEl.innerHTML = `<div class="p-8 text-center text-slate-400 text-sm italic">Không tìm thấy bạn bè phù hợp.</div>`;
+        return;
+    }
+
+    listEl.innerHTML = list.map(f => {
+        const isSelected = selectedMembers.some(m => m.id == f.id);
+        const isMember = !!f.is_member; // Flag from backend
+        const displayAvatar = f.avatar_url || f.avatar;
+
+        return `
+            <div onclick="${isMember ? '' : `window.ChatModule.toggleSelectMember('${f.id}', '${f.full_name}')`}" 
+                 class="flex items-center gap-3 p-3 transition 
+                 ${isMember ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/30' : 'cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-700'} 
+                 ${isSelected ? 'bg-blue-50 dark:bg-slate-700/50' : ''}">
+                
+                <div class="relative">
+                    <img src="${getAvatarUrl(displayAvatar)}" class="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-600">
+                    ${isSelected ? `
+                        <div class="absolute -right-1 -bottom-1 bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] border-2 border-white dark:border-slate-800 animate-scale-in">
+                            ✓
+                        </div>
+                    ` : ''}
+                    ${isMember ? `
+                        <div class="absolute -right-1 -bottom-1 bg-slate-400 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] border-2 border-white dark:border-slate-800">
+                            in
+                        </div>
+                    ` : ''}
+                </div>
+
+                <div class="flex-1">
+                    <div class="text-sm font-bold text-slate-700 dark:text-slate-200">${f.full_name}</div>
+                    ${f.username ? `<div class="text-xs text-slate-500 dark:text-slate-400">@${f.username}</div>` : ''}
+                </div>
+
+                ${isMember ? '<span class="text-slate-500 text-[10px] font-bold bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg">Đã tham gia</span>' : ''}
+                ${isSelected ? '<span class="text-blue-600 text-xs font-bold bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 px-2 py-1 rounded-lg">Đã chọn</span>' : ''}
             </div>
-        `).join('');
-    } catch (e) { }
+        `;
+    }).join('');
 }
 
 export function toggleSelectMember(id, name) {
-    const idx = selectedMembers.findIndex(m => m.id === id);
-    if (idx === -1) selectedMembers.push({ id, name });
-    else selectedMembers.splice(idx, 1);
+    // 0. Check if this member is already in group (safety check)
+    const friendObj = groupCreationFriendsList.find(x => x.id == id);
+    if (friendObj && friendObj.is_member) return;
 
+    // 1. Update logic
+    const idx = selectedMembers.findIndex(m => m.id == id);
+    if (idx === -1) {
+        selectedMembers.push({ id, name });
+    } else {
+        selectedMembers.splice(idx, 1);
+    }
+
+    // 2. Update Selected Container UI
     const container = document.getElementById('selectedContainer');
     if (selectedMembers.length === 0) {
-        container.innerHTML = `Chọn ít nhất 2 bạn bè`;
+        container.innerHTML = `Chưa chọn thành viên nào...`;
+        container.classList.add('italic', 'text-slate-400');
     } else {
-        container.innerHTML = selectedMembers.map(m => `
-            <div class="relative flex flex-col items-center">
-                <div class="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-xs border-2 border-white shadow-md">${m.name[0].toUpperCase()}</div>
-                <div class="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] cursor-pointer" 
+        container.classList.remove('italic', 'text-slate-400');
+        container.innerHTML = selectedMembers.map(m => {
+            // Find full object for avatar if possible
+            const friendObj = groupCreationFriendsList.find(x => x.id == m.id);
+            const avatarSrc = friendObj ? getAvatarUrl(friendObj.avatar_url) : null;
+
+            return `
+            <div class="relative flex flex-col items-center group animate-fade-in" title="${m.name}">
+                <div class="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden border-2 border-white dark:border-slate-600 shadow-sm">
+                     ${avatarSrc ? `<img src="${avatarSrc}" class="w-full h-full object-cover">` : `<span class="font-bold text-xs">${m.name[0].toUpperCase()}</span>`}
+                </div>
+                <div class="absolute -top-1 -right-1 bg-slate-500 hover:bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] cursor-pointer transition shadow-md" 
                      onclick="event.stopPropagation(); window.ChatModule.toggleSelectMember('${m.id}', '${m.name}')">✕</div>
             </div>
-        `).join('');
+        `}).join('');
     }
+
+    // 3. Re-render list to update checks
+    const searchInput = document.getElementById('groupMemberSearchInput');
+    const query = searchInput ? searchInput.value : '';
+    handleGroupFriendSearch(query);
 }
 
 export async function submitCreateGroup() {
@@ -1284,7 +1367,7 @@ export async function submitCreateGroup() {
         const res = await apiFetch(`/chat/group`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ creator_id: window.currentUser.userId, name, member_ids: selectedMembers.map(m => m.id) })
+            body: JSON.stringify({ creator_id: (window.currentUser.id || window.currentUser.userId), name, member_ids: selectedMembers.map(m => m.id) })
         });
         if (res && res.ok) { showToast('Thành công!'); window.closeModal(); switchChatTab('groups'); }
     } catch (err) { showToast('Lỗi khi tạo nhóm', 'error'); }
@@ -1307,16 +1390,14 @@ export async function markChatAsReadAPI(targetId) {
         await apiFetch(`/chat/mark-read`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: window.currentUser.userId, target_id: targetId })
+            body: JSON.stringify({ user_id: (window.currentUser.id || window.currentUser.userId), target_id: targetId })
         });
     } catch (err) { }
 }
 
 export function showEmojiPicker() { showToast('Emoji: 😀 😁 😂 🤣 😃 😄', 'info'); }
 
-// ============================================
 // EXPORTS TO GLOBAL
-// ============================================
 /**
  * @desc Xử lý click vào Card chia sẻ - CHÚ Ý: Đã chuyển vào object ChatModule
  */
@@ -1340,28 +1421,51 @@ export async function handleShareClick(link) {
             if (!res) return;
             const data = await res.json();
 
-            if (!data.exists) return showToast("Bài viết không còn tồn tại!", "error");
+            // Kiểm tra bài viết có tồn tại không
+            if (!data.exists) {
+                return showToast("Bài viết không còn tồn tại!", "error");
+            }
 
             // Kiểm tra quyền riêng tư
-            if (data.visibility === 1 && String(data.ownerId) !== String(window.currentUser.userId)) {
+            if (data.visibility === 1 && String(data.ownerId) !== String((window.currentUser.id || window.currentUser.userId))) {
                 return showToast("Bài viết này đã được chuyển sang chế độ riêng tư.", "info");
             }
 
             if (data.groupId) {
-                // Post trong Group
-                const memberRes = await apiFetch(`/groups/${data.groupId}/check-member?user_id=${window.currentUser.userId}`);
-                if (!memberRes) return;
-                const memberData = await memberRes.json();
+                // Post trong Group - Cần kiểm tra group còn tồn tại không
+                try {
+                    const groupRes = await apiFetch(`/groups/${data.groupId}?user_id=${(window.currentUser.id || window.currentUser.userId)}`);
 
-                window.switchView('group', data.groupId);
-                if (memberData.isMember) {
-                    // Tăng thời gian chờ một chút để đảm bảo DOM đã render xong
-                    setTimeout(() => scrollToPost(id), 1000);
-                } else {
-                    showToast("Hãy tham gia nhóm để xem chi tiết bài đăng!", "info");
+                    if (!groupRes || !groupRes.ok) {
+                        // Group đã bị xóa hoặc không tồn tại
+                        return showToast("Page/Group không còn tồn tại!", "error");
+                    }
+
+                    const groupData = await groupRes.json();
+                    const membershipStatus = groupData.membership_status; // 'creator', 'super_admin', 'admin', 'member', 'pending', 'not_member'
+
+                    // Kiểm tra membership
+                    const isMember = ['creator', 'super_admin', 'admin', 'member'].includes(membershipStatus);
+
+                    if (isMember) {
+                        // Là thành viên - chuyển đến group và scroll đến bài viết
+                        window.switchView('group', data.groupId);
+                        setTimeout(() => scrollToPost(id), 1000);
+                    } else if (membershipStatus === 'pending') {
+                        // Đang chờ duyệt
+                        window.switchView('group', data.groupId);
+                        showToast("Yêu cầu tham gia của bạn đang chờ duyệt. Hãy tham gia để xem bài đăng!", "info");
+                    } else {
+                        // Không phải thành viên - chuyển đến trang group để hiển thị nút tham gia
+                        window.switchView('group', data.groupId);
+                        showToast("Hãy tham gia Page/Group để xem chi tiết bài đăng!", "info");
+                    }
+                } catch (groupErr) {
+                    console.error("Lỗi kiểm tra group:", groupErr);
+                    showToast("Page/Group không còn tồn tại!", "error");
                 }
             } else {
-                // Post cá nhân
+                // Post cá nhân - chuyển đến profile
                 window.switchView('profile', data.ownerId);
                 setTimeout(() => scrollToPost(id), 1000);
             }
@@ -1387,21 +1491,23 @@ function scrollToPost(postId) {
             if (retryEl) {
                 retryEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 retryEl.classList.add('ring-4', 'ring-blue-500');
+                setTimeout(() => retryEl.classList.remove('ring-4', 'ring-blue-500'), 3000);
+            } else {
+                // Sau 2 lần thử vẫn không tìm thấy -> Bài viết đã bị xóa
+                showToast("Bài đăng không còn tồn tại!", "error");
             }
         }, 500);
     }
 }
 
-/* =======================
-   XỬ LÝ UPLOAD AVATAR NHÓM CHAT
-   ======================= */
+//XỬ LÝ UPLOAD AVATAR NHÓM CHAT
 export async function handleChatAvatarUpload(event) {
     const file = event.target.files[0];
     if (!file || !currentChatTarget) return;
 
     const formData = new FormData();
     formData.append('type', 'group_chat');
-    formData.append('user_id', window.currentUser.userId);
+    formData.append('user_id', (window.currentUser.id || window.currentUser.userId));
     formData.append('avatar', file);
 
     try {
@@ -1436,16 +1542,54 @@ export async function handleChatAvatarUpload(event) {
 }
 
 window.ChatModule = {
-    handleChatAvatarUpload, // [NEW] Export
-    switchChatTab, openChat, displayMessage, sendMessage, markChatAsReadAPI, handleBlock,
-    showCreateGroupModal, submitCreateGroup, toggleSelectMember,
-    toggleChatSettings, updateAlias, updateGroupName, deleteChatConfirm,
-    viewMembers, removeMember, leaveGroup, addMemberPrompt, submitAddMembers,
-    showEmojiPicker, scrollToPost, promptMemberAlias, handleShareClick,
-    previewImage, clearImage, setReply, cancelReply, showReactions, sendReaction,
-    handleChatSidebarSearch, toggleRecentExpansion, toggleHistoryExpansion,
-    deleteHistoryItemChat, clearHistoryChat, openFromHistory, toggleChatSearch,
-    updateOnlineStatus, scrollToMessage
+    //xử lý tin nhắn
+    displayMessage,
+    sendMessage,
+    markChatAsReadAPI,
+    scrollToMessage,
+    scrollToPost,
+    //xử lý reply va chia se
+    setReply,
+    cancelReply,
+    handleShareClick,
+    //xử lý emoji
+    showEmojiPicker,
+    showReactions,
+    sendReaction,
+    //xử lý avatar va chat ảnh
+    handleChatAvatarUpload,
+    previewImage,
+    clearImage,
+    //xử lý tab chat
+    switchChatTab,
+    openChat,
+    openFromHistory,
+    //xử lý tìm kiếm va lọc
+    handleChatSidebarSearch,
+    toggleChatSearch,
+    handleGroupFriendSearch,
+    //lịch sử chat
+    toggleRecentExpansion,
+    toggleHistoryExpansion,
+    deleteHistoryItemChat,
+    clearHistoryChat,
+    //quản lý nhóm
+    showCreateGroupModal,
+    submitCreateGroup,
+    toggleSelectMember,
+    viewMembers,
+    removeMember,
+    leaveGroup,
+    addMemberPrompt,
+    submitAddMembers,
+    updateGroupName,
+    //cài đặt và quyền riêng tư
+    toggleChatSettings,
+    updateAlias,
+    promptMemberAlias,
+    handleBlock,
+    //trạng thái online realtime
+    updateOnlineStatus,
 };
 
 document.addEventListener('DOMContentLoaded', initSocketListeners);
